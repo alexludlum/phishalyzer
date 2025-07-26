@@ -181,7 +181,7 @@ def analyze_headers(msg_obj: Message):
     from_addr = headers.get("From", "").lower()
     return_path = headers.get("Return-Path", "").lower()
     if from_addr and return_path and return_path not in from_addr:
-        factors_warn.append("Return-Path domain differs from From domain (possible spoofing)")
+        factors_warn.append("Return-Path domain does not match the From domain (possible spoofing)")
 
     if all(c == "green" for c in concerns) and not factors_warn and not factors_malicious:
         verdict = Text("Security concern unlikely, but verify other factors.", style="green")
@@ -190,7 +190,7 @@ def analyze_headers(msg_obj: Message):
     else:
         verdict = Text("Possible security concern detected.", style="orange3")
 
-    print(Text("Assessment:", style="blue"), verdict)
+    print(Text("HEADER ASSESSMENT:", style="blue"), verdict)
     print()
 
     if factors_benign:

@@ -1,6 +1,7 @@
 import re
 import time
 import requests
+import ipaddress
 from rich import print
 
 def print_centered_header(title: str):
@@ -14,7 +15,6 @@ def extract_ips_from_headers(msg_obj):
     headers = str(msg_obj)
     ips = list(set(re.findall(ip_regex, headers)))
 
-    # Filter out IP-like strings with leading zeros (except single '0')
     def valid_ip(ip):
         parts = ip.split('.')
         for p in parts:
@@ -25,7 +25,15 @@ def extract_ips_from_headers(msg_obj):
     ips = [ip for ip in ips if valid_ip(ip)]
     return ips
 
+def is_private_ip(ip):
+    try:
+        return ipaddress.ip_address(ip).is_private
+    except ValueError:
+        return False
+
 def get_geoip_country(ip):
+    if is_private_ip(ip):
+        return "Private"
     try:
         response = requests.get(f"https://ipapi.co/{ip}/country_name/", timeout=5)
         if response.status_code == 200:
@@ -93,6 +101,7 @@ def analyze_ips(msg_obj, api_key):
         return []
 
     cache = {}
+    results = []
 
     for ip in ip_list:
         verdict, comment = check_ip_virustotal(ip, api_key, cache)
@@ -109,6 +118,18 @@ def analyze_ips(msg_obj, api_key):
         else:
             verdict_text = "[orange3]UNKNOWN[/orange3]"
 
+        results.append((country, ip, verdict_text, comment))
+
+    # Sort so that "Private" and "unknown" are last
+    def sort_key(entry):
+        country = entry[0].lower()
+        if country in ("private", "unknown"):
+            return (1, country)
+        return (0, country)
+
+    sorted_results = sorted(results, key=sort_key)
+
+    for country, ip, verdict_text, comment in sorted_results:
         print(f"IP: [yellow]{ip}[/yellow] ({country}) - Verdict: {verdict_text} ({comment})")
 
     return []

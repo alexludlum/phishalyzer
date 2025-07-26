@@ -22,20 +22,27 @@ DATE_PATTERN = re.compile(
     r'\b'
 )
 
-FAILURE_TERMS = {"fail", "softfail", "missing", "not signed", "temperror", "permerror", "invalid", "bad"}
-PASS_TERMS = {"pass", "bestguesspass", "none"}
-WARNING_TERMS = {"quarantine", "suspect"}
-
+FAILURE_TERMS = {
+    "fail", "softfail", "temperror", "permerror", "invalid",
+    "missing", "bad", "hardfail", "not signed"
+}
+PASS_TERMS = {
+    "pass", "bestguesspass"
+}
+WARNING_TERMS = {
+    "neutral", "policy", "none", "unknown"
+}
 
 def print_centered_header(text="EMAIL HEADER ANALYSIS"):
-    width = shutil.get_terminal_size().columns
-    header_line = "=" * width
-    padding = (width - len(text)) // 2
-
+    term_width = shutil.get_terminal_size().columns
+    max_width = min(term_width, 80)
+    header_line = "=" * max_width
+    padding = (max_width - len(text)) // 2
+    if padding < 0:
+        padding = 0
     print(header_line)
     print(" " * padding + text)
     print(header_line + "\n")
-
 
 def analyze_headers(msg_obj: Message):
     headers = dict(msg_obj.items())
@@ -111,13 +118,11 @@ def analyze_headers(msg_obj: Message):
 
     print()
 
-    auth_keys = ["SPF", "DKIM", "DMARC", "Authentication-Results"]
-    for key in auth_keys:
-        val = headers.get(key)
-        if val is None or (isinstance(val, str) and not val.strip()):
-            print(color_key(key), Text("MISSING", style="red"))
-        else:
-            print(color_key(key), color_value(key, val))
+    auth_results_val = headers.get("Authentication-Results")
+    if auth_results_val is not None:
+        print(color_key("Authentication-Results"), color_value("Authentication-Results", auth_results_val))
+    else:
+        print(color_key("Authentication-Results"), Text("MISSING", style="red"))
 
     print()
 
@@ -139,20 +144,33 @@ def analyze_headers(msg_obj: Message):
     factors_warn = []
     factors_malicious = []
 
-    for key in ["SPF", "DKIM", "DMARC"]:
-        val = headers.get(key, "").lower()
-        if any(term in val for term in FAILURE_TERMS):
+    def get_auth_result(mech: str):
+        auth_res = headers.get("Authentication-Results", "").lower()
+        m = re.search(rf"{mech}=([a-z]+)", auth_res)
+        if m:
+            return m.group(1)
+        else:
+            return None
+
+    for mech in ["spf", "dkim", "dmarc"]:
+        result = get_auth_result(mech)
+        if not result:
+            result = "missing"
+        if result in FAILURE_TERMS:
             concerns.append("red")
-            factors_malicious.append(f"{key}: Failure or missing (value: {headers.get(key)})")
-        elif any(term in val for term in WARNING_TERMS):
+            factors_malicious.append(f"{mech.upper()}: Failure or missing (value: {result})")
+        elif result in WARNING_TERMS:
             concerns.append("orange")
-            factors_warn.append(f"{key}: Warning / Suspect (value: {headers.get(key)})")
-        elif any(term in val for term in PASS_TERMS):
+            # Remove the slash and just join terms with "or"
+            # Previously "Warning / Suspect" replaced with just "Warning or Suspect"
+            text = f"{mech.upper()}: Warning or Suspect (value: {result})"
+            factors_warn.append(text)
+        elif result in PASS_TERMS:
             concerns.append("green")
-            factors_benign.append(f"{key}: Passed (value: {headers.get(key)})")
+            factors_benign.append(f"{mech.upper()}: Passed (value: {result})")
         else:
             concerns.append("orange")
-            factors_warn.append(f"{key}: Ambiguous or unknown result (value: {headers.get(key)})")
+            factors_warn.append(f"{mech.upper()}: Ambiguous or unknown result (value: {result})")
 
     reply_to = headers.get("Reply-To")
     if reply_to is None or not reply_to.strip():
@@ -184,9 +202,11 @@ def analyze_headers(msg_obj: Message):
         print("[orange3]Warning factors:[/orange3]")
         for f in factors_warn:
             print(f"  • {f}")
+
     if factors_malicious:
         print("[red]Malicious factors:[/red]")
         for f in factors_malicious:
             print(f"  • {f}")
+
     if not (factors_benign or factors_warn or factors_malicious):
         print("  None detected.")

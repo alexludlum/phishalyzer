@@ -1,115 +1,114 @@
-# analyzer/ioc_extractor.py
-
 import re
-import shutil
+import time
 import requests
 from rich import print
-from rich.text import Text
-from rich.console import Console
 
-console = Console()
+def print_centered_header(title: str):
+    width = 80
+    print("=" * width)
+    print(title.center(width))
+    print("=" * width + "\n")
 
-IP_PATTERN = re.compile(
-    r'\b('
-    r'(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.'
-    r'(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.'
-    r'(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.'
-    r'(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)'
-    r')\b'
-)
+def extract_ips_from_headers(msg_obj):
+    ip_regex = r"\b(?:\d{1,3}\.){3}\d{1,3}\b"
+    headers = str(msg_obj)
+    ips = list(set(re.findall(ip_regex, headers)))
 
+    # Filter out IP-like strings with leading zeros (except single '0')
+    def valid_ip(ip):
+        parts = ip.split('.')
+        for p in parts:
+            if len(p) > 1 and p.startswith('0'):
+                return False
+        return True
 
-def print_centered_header(text):
-    width = shutil.get_terminal_size().columns
-    header_line = "=" * width
-    padding = (width - len(text)) // 2
-    print(header_line)
-    print(" " * padding + text)
-    print(header_line + "\n")
+    ips = [ip for ip in ips if valid_ip(ip)]
+    return ips
 
+def get_geoip_country(ip):
+    try:
+        response = requests.get(f"https://ipapi.co/{ip}/country_name/", timeout=5)
+        if response.status_code == 200:
+            country = response.text.strip()
+            if country:
+                return country
+    except Exception:
+        pass
+    return "unknown"
 
-def analyze_ips(msg_obj, vt_api_key=None, suppress_header=False):
-    if not suppress_header:
-        print_centered_header("EMAIL HEADER ANALYSIS".replace("EMAIL HEADER ANALYSIS", "IOC IP ADDRESS ANALYSIS"))
+def check_ip_virustotal(ip, api_key, cache):
+    if ip in cache:
+        return cache[ip]
 
-    text_to_search = ""
-    for header, value in msg_obj.items():
-        text_to_search += f"{header}: {value}\n"
+    if not api_key:
+        cache[ip] = ("unchecked", "IP will need to be investigated manually")
+        return cache[ip]
 
-    ips = set(m.group(0) for m in IP_PATTERN.finditer(text_to_search))
-
-    if not ips:
-        print("No IP addresses found in this email.\n")
-        return []
-
-    results = []
-    checked_ips = {}
-
-    if not vt_api_key:
-        print("[yellow]No VirusTotal API key provided. IPs will need to be investigated manually.[/yellow]\n")
-
-    for ip in ips:
-        if vt_api_key:
-            if ip in checked_ips:
-                vt_data = checked_ips[ip]["vt_data"]
-                verdict = checked_ips[ip]["verdict"]
-            else:
-                vt_data = query_virustotal_ip(ip, vt_api_key)
-                verdict = parse_vt_ip_verdict(vt_data)
-                checked_ips[ip] = {
-                    "vt_data": vt_data,
-                    "verdict": verdict
-                }
-
-            if verdict == "benign":
-                verdict_text = Text("BENIGN", style="green")
-            elif verdict == "suspicious":
-                verdict_text = Text("SUSPICIOUS", style="orange3")
-            elif verdict == "malicious":
-                verdict_text = Text("MALICIOUS", style="red", justify="left", no_wrap=True)
-            else:
-                verdict_text = Text("UNKNOWN", style="yellow")
-
-        else:
-            verdict = "UNCHECKED"
-            vt_data = None
-            verdict_text = Text("UNCHECKED", style="orange3")
-
-        console.print("IP:", f"[yellow]{ip}[/yellow]", "- Verdict:", verdict_text)
-
-        results.append({
-            "ip": ip,
-            "vt_data": vt_data,
-            "verdict": verdict
-        })
-
-    return results
-
-
-def query_virustotal_ip(ip, api_key):
     url = f"https://www.virustotal.com/api/v3/ip_addresses/{ip}"
     headers = {"x-apikey": api_key}
+
     try:
-        resp = requests.get(url, headers=headers, timeout=10)
-        if resp.status_code == 200:
-            return resp.json()
+        response = requests.get(url, headers=headers)
+        if response.status_code == 429:
+            while True:
+                choice = input(
+                    "[yellow]VirusTotal API rate limit reached.[/yellow]\n"
+                    "Type 'wait' to wait 60 seconds, or 'skip' to proceed without checking: "
+                ).strip().lower()
+                if choice == "wait":
+                    print("Waiting 60 seconds...")
+                    time.sleep(60)
+                    response = requests.get(url, headers=headers)
+                    if response.status_code != 429:
+                        break
+                elif choice == "skip":
+                    cache[ip] = ("unchecked", "IP will need to be investigated manually")
+                    return cache[ip]
+                else:
+                    print("Invalid input. Please type 'wait' or 'skip'.")
+
+        if response.status_code == 200:
+            data = response.json()
+            stats = data.get("data", {}).get("attributes", {}).get("last_analysis_stats", {})
+            if stats.get("malicious", 0) > 0:
+                cache[ip] = ("malicious", "one or more vendors reported this IP")
+            elif stats.get("suspicious", 0) > 0:
+                cache[ip] = ("suspicious", "some vendors flagged this IP")
+            elif stats.get("harmless", 0) > 0:
+                cache[ip] = ("benign", "this IP address has not been reported at this time")
+            else:
+                cache[ip] = ("unchecked", "IP will need to be investigated manually")
         else:
-            print(f"[orange3]Warning: VT API returned status {resp.status_code} for IP {ip}[/orange3]")
-            return None
+            cache[ip] = ("unchecked", "IP will need to be investigated manually")
     except Exception as e:
-        print(f"[red]Error querying VT for IP {ip}: {e}[/red]")
-        return None
+        print(f"[red]Error querying VirusTotal for IP {ip}: {e}[/red]")
+        cache[ip] = ("unchecked", "IP will need to be investigated manually")
 
+    return cache[ip]
 
-def parse_vt_ip_verdict(vt_data):
-    if not vt_data:
-        return "unknown"
-    stats = vt_data.get("data", {}).get("attributes", {}).get("last_analysis_stats", {})
-    if not stats:
-        return "unknown"
-    if stats.get("malicious", 0) > 0:
-        return "malicious"
-    elif stats.get("suspicious", 0) > 0:
-        return "suspicious"
-    else:
-        return "benign"
+def analyze_ips(msg_obj, api_key):
+    ip_list = extract_ips_from_headers(msg_obj)
+    if not ip_list:
+        print("[yellow]No IP addresses found in this email.[/yellow]\n")
+        return []
+
+    cache = {}
+
+    for ip in ip_list:
+        verdict, comment = check_ip_virustotal(ip, api_key, cache)
+        country = get_geoip_country(ip)
+
+        if verdict == "malicious":
+            verdict_text = "[red]MALICIOUS[/red]"
+        elif verdict == "suspicious":
+            verdict_text = "[orange3]SUSPICIOUS[/orange3]"
+        elif verdict == "benign":
+            verdict_text = "[green]BENIGN[/green]"
+        elif verdict == "unchecked":
+            verdict_text = "[orange3]UNCHECKED[/orange3]"
+        else:
+            verdict_text = "[orange3]UNKNOWN[/orange3]"
+
+        print(f"IP: [yellow]{ip}[/yellow] ({country}) - Verdict: {verdict_text} ({comment})")
+
+    return []

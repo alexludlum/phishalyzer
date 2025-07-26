@@ -1,0 +1,8 @@
+extract-msg
+dnspython
+requests
+beautifulsoup4
+virustotal-python
+email-validator
+playwright
+rich

@@ -1,145 +1,203 @@
-from rich.console import Console
-from rich.markup import escape
 import re
+import time
+import shutil
 from email.message import Message
+from rich import print
+from rich.text import Text
 
-console = Console()
+IP_PATTERN = re.compile(
+    r'\b('
+    r'(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.'
+    r'(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.'
+    r'(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.'
+    r'(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)'
+    r')\b'
+)
 
-def analyze_headers(msg: Message):
-    issues = []
+DATE_PATTERN = re.compile(
+    r'\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun),?\s+'
+    r'\d{1,2}\s+'
+    r'(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+'
+    r'\d{4}'
+    r'(?:\s+\d{2}:\d{2}(?::\d{2})?\s+[-+]\d{4})?'
+    r'\b'
+)
 
-    console.print("\nHEADER SUMMARY\n", highlight=False)
+FAILURE_TERMS = {"fail", "softfail", "missing", "not signed", "temperror", "permerror", "invalid", "bad"}
+PASS_TERMS = {"pass", "bestguesspass", "none"}
+WARNING_TERMS = {"quarantine", "suspect"}
 
-    def safe_get(field):
-        val = msg.get(field)
-        if val is None or val.strip() == "":
-            # Print missing headers as RED "MISSING"
-            return "[red]MISSING[/red]"
-        return val
 
-    def print_header(key, value):
-        # Print header key and value without extra blank line between them
-        if value == "[red]MISSING[/red]":
-            console.print(f"[blue]{escape(key)}[/] {value}", highlight=False)
+def print_centered_header(text="EMAIL HEADER ANALYSIS"):
+    width = shutil.get_terminal_size().columns
+    header_line = "=" * width
+    padding = (width - len(text)) // 2
+
+    print(header_line)
+    print(" " * padding + text)
+    print(header_line + "\n")
+
+
+def finishing_animation():
+    print("\nFinishing up", end="", flush=True)
+    for _ in range(3):
+        time.sleep(0.66)  # ~2 seconds total for 3 dots
+        print(".", end="", flush=True)
+    print("\n")
+
+
+def analyze_headers(msg_obj: Message):
+    headers = dict(msg_obj.items())
+
+    def color_key(key: str) -> Text:
+        return Text(key + ":", style="blue")
+
+    def highlight_ips_and_dates(text: str) -> Text:
+        t = Text(text)
+        for match in IP_PATTERN.finditer(text):
+            t.stylize("yellow", match.start(), match.end())
+        for match in DATE_PATTERN.finditer(text):
+            t.stylize("blue", match.start(), match.end())
+        return t
+
+    def color_auth_word(word: str) -> Text:
+        lw = word.lower()
+        if lw in FAILURE_TERMS:
+            return Text(word.upper(), style="red")
+        elif lw in PASS_TERMS:
+            return Text(word, style="green")
+        elif lw in WARNING_TERMS:
+            return Text(word, style="orange3")
         else:
-            console.print(f"[blue]{escape(key)}[/] {value}", highlight=False)
+            return Text(word)
 
-    def highlight_specials(text):
-        ip_pattern = r'\b(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\b'
-
-        date_time_pattern = (
-            r'(?<!\S)(\d{4}[-./]\d{1,2}[-./]\d{1,2})(?!\S)'
-            r'|(?<!\S)(\d{1,2}:\d{2}:\d{2}(?:\s?[-+]\d{4})?)(?!\S)'
-            r'|(?<!\S)([A-Z][a-z]{2},\s\d{1,2}\s[A-Z][a-z]{2}\s\d{4}\s\d{2}:\d{2}:\d{2}\s(?:[-+]\d{4}|[A-Z]{3,4}))(?!\S)'
-        )
-
-        lines = text.splitlines()
-        highlighted_lines = []
-        for line in lines:
-            if any(tag in line for tag in ['[red]', '[yellow]', '[green]', '[blue]']):
-                escaped_line = line
+    def color_authentication_results(value: str) -> Text:
+        tokens = re.split(r'(\s+|;)', value)
+        colored_tokens = []
+        for token in tokens:
+            if '=' in token:
+                mech, sep, status = token.partition('=')
+                colored_tokens.append(Text(mech + sep))
+                colored_tokens.append(color_auth_word(status))
             else:
-                escaped_line = escape(line)
+                colored_tokens.append(Text(token))
 
-            # Highlight IPs first
-            line_with_ips = re.sub(ip_pattern, lambda m: f"[yellow]{m.group(0)}[/yellow]", escaped_line)
+        result = Text()
+        for t in colored_tokens:
+            result.append(t)
 
-            # Then highlight dates/times
-            def date_time_replacer(match):
-                for group in match.groups():
-                    if group:
-                        return f"[blue]{group}[/blue]"
-                return match.group(0)
+        plain = result.plain
+        for match in IP_PATTERN.finditer(plain):
+            result.stylize("yellow", match.start(), match.end())
+        for match in DATE_PATTERN.finditer(plain):
+            result.stylize("blue", match.start(), match.end())
 
-            line_final = re.sub(date_time_pattern, date_time_replacer, line_with_ips)
-            highlighted_lines.append(line_final)
+        return result
 
-        return "\n".join(highlighted_lines)
-
-    def color_auth_result(value: str) -> str:
-        """Color authentication results green if 'pass' or 'present', red if fail/softfail/missing."""
-        val_lower = value.lower()
-        if any(x in val_lower for x in ['pass', 'present', 'success']):
-            return f"[green]{escape(value)}[/green]"
-        elif any(x in val_lower for x in ['fail', 'softfail', 'missing', 'not signed', 'none', 'temperror', 'permerror']):
-            return f"[red]{escape(value.upper())}[/red]"
+    def color_value(key: str, val: str) -> Text:
+        if key == "Authentication-Results":
+            return color_authentication_results(val)
         else:
-            # Default to blue for other values
-            return f"[blue]{escape(value)}[/blue]"
+            t = highlight_ips_and_dates(val)
+            lw = val.lower()
+            if any(term in lw for term in FAILURE_TERMS):
+                return Text(val.upper(), style="red")
+            elif any(term in lw for term in PASS_TERMS):
+                return Text(val, style="green")
+            elif any(term in lw for term in WARNING_TERMS):
+                return Text(val, style="orange3")
+            return t
 
-    from_addr = safe_get("From")
-    reply_to = safe_get("Reply-To")
-    return_path = safe_get("Return-Path")
-    spf = safe_get("Received-SPF")
-    auth_results = safe_get("Authentication-Results")
-    message_id = safe_get("Message-ID")
-    dkim = safe_get("DKIM-Signature")
-    received_headers = msg.get_all("Received", [])
+    print_centered_header()
 
-    print_header("From:", from_addr)
-    print_header("Return-Path:", return_path)
-    if "[red]MISSING[/red]" not in (return_path, from_addr):
-        if extract_domain(from_addr) != extract_domain(return_path):
-            issues.append("Return-Path domain does not match From domain")
+    basics = ["From", "Return-Path", "Reply-To", "Message-ID", "Subject", "Date"]
+    for key in basics:
+        val = headers.get(key)
+        if val is None or (isinstance(val, str) and not val.strip()):
+            print(color_key(key), Text("MISSING", style="red"))
+        else:
+            print(color_key(key), color_value(key, val))
 
-    print_header("Reply-To:", reply_to)
-    if reply_to != "[red]MISSING[/red]" and from_addr != "[red]MISSING[/red]":
-        if extract_domain(reply_to) != extract_domain(from_addr):
-            issues.append("Reply-To domain suspiciously differs from From domain")
+    print()
 
-    spf_colored = highlight_specials(spf)
-    spf_colored = re.sub(
-        r'(pass|fail|softfail)', 
-        lambda m: f"[green]{m.group(1)}[/green]" if m.group(1).lower() == 'pass' else f"[red]{m.group(1).upper()}[/red]", 
-        spf_colored, flags=re.IGNORECASE
-    )
-    print_header("SPF:", spf_colored)
-    if 'fail' in spf.lower() or 'softfail' in spf.lower():
-        issues.append("SPF authentication failed or soft failed")
+    auth_keys = ["SPF", "DKIM", "DMARC", "Authentication-Results"]
+    for key in auth_keys:
+        val = headers.get(key)
+        if val is None or (isinstance(val, str) and not val.strip()):
+            print(color_key(key), Text("MISSING", style="red"))
+        else:
+            print(color_key(key), color_value(key, val))
 
-    dkim_status = 'present' if dkim != "[red]MISSING[/red]" else 'missing'
-    print_header("DKIM:", color_auth_result(dkim_status))
-    if dkim == "[red]MISSING[/red]":
-        issues.append("Missing DKIM signature")
+    print()
 
-    if auth_results != "[red]MISSING[/red]":
-        auth_results_colored = highlight_specials(auth_results)
-        auth_results_colored = re.sub(
-            r'(pass|fail|none|missing|permerror|temperror|softfail)', 
-            lambda m: f"[green]{m.group(1)}[/green]" if m.group(1).lower() == 'pass' else f"[red]{m.group(1).upper()}[/red]",
-            auth_results_colored, flags=re.IGNORECASE
-        )
-        print_header("Authentication-Results:", auth_results_colored)
+    print(Text("Received Hops:", style="blue"))
+    hops = msg_obj.get_all("Received", [])
+    for i, hop in enumerate(hops, 1):
+        label = Text(f"[{i}]", style="blue")
+        hop_text = Text(hop)
+        for match in IP_PATTERN.finditer(hop):
+            hop_text.stylize("yellow", match.start(), match.end())
+        for match in DATE_PATTERN.finditer(hop):
+            hop_text.stylize("blue", match.start(), match.end())
+        print(label, hop_text)
+
+    print()
+
+    concerns = []
+    factors_benign = []
+    factors_warn = []
+    factors_malicious = []
+
+    for key in ["SPF", "DKIM", "DMARC"]:
+        val = headers.get(key, "").lower()
+        if any(term in val for term in FAILURE_TERMS):
+            concerns.append("red")
+            factors_malicious.append(f"{key}: Failure or missing (value: {headers.get(key)})")
+        elif any(term in val for term in WARNING_TERMS):
+            concerns.append("orange")
+            factors_warn.append(f"{key}: Warning / Suspect (value: {headers.get(key)})")
+        elif any(term in val for term in PASS_TERMS):
+            concerns.append("green")
+            factors_benign.append(f"{key}: Passed (value: {headers.get(key)})")
+        else:
+            concerns.append("orange")
+            factors_warn.append(f"{key}: Ambiguous or unknown result (value: {headers.get(key)})")
+
+    reply_to = headers.get("Reply-To")
+    if reply_to is None or not reply_to.strip():
+        factors_warn.append("Reply-To header missing")
     else:
-        print_header("Authentication-Results:", color_auth_result('missing'))
-        issues.append("Missing Authentication-Results header")
+        factors_benign.append("Reply-To header present")
 
-    print_header("Message-ID:", message_id)
+    from_addr = headers.get("From", "").lower()
+    return_path = headers.get("Return-Path", "").lower()
+    if from_addr and return_path and return_path not in from_addr:
+        factors_warn.append("Return-Path domain differs from From domain (possible spoofing)")
 
-    console.print("\nRECEIVED HOPS\n", highlight=False)
-    for i, hop in enumerate(received_headers[::-1], 1):
-        number = f"[blue][{i}][/blue]"
-        console.print(f"{number} {highlight_specials(hop.strip())}", highlight=False)
-        ip_matches = re.findall(r'\b(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\b', hop)
-        for ip in ip_matches:
-            if is_private_ip(ip):
-                issues.append(f"Private IP address found in Received header: {ip}")
-
-    console.print("\nSECURITY ISSUES\n", highlight=False)
-    if issues:
-        for issue in issues:
-            console.print(f"- {escape(issue)}", highlight=False)
+    if all(c == "green" for c in concerns) and not factors_warn and not factors_malicious:
+        verdict = Text("Security concern unlikely, but verify other factors.", style="green")
+    elif "red" in concerns or factors_malicious:
+        verdict = Text("Likely security concern. Proceed with caution.", style="red")
     else:
-        console.print("No issues detected.", highlight=False)
+        verdict = Text("Possible security concern detected.", style="orange3")
 
-def extract_domain(addr: str) -> str:
-    match = re.search(r'@([^\s>]+)', addr)
-    return match.group(1).lower() if match else ""
+    print(Text("Assessment:", style="blue"), verdict)
+    print()
 
-def is_private_ip(ip: str) -> bool:
-    octets = list(map(int, ip.split(".")))
-    return (
-        octets[0] == 10 or
-        (octets[0] == 172 and 16 <= octets[1] <= 31) or
-        (octets[0] == 192 and octets[1] == 168)
-    )
+    if factors_benign:
+        print("[green]Benign factors:[/green]")
+        for f in factors_benign:
+            print(f"  • {f}")
+
+    finishing_animation()
+
+    if factors_warn:
+        print("[orange3]Warning factors:[/orange3]")
+        for f in factors_warn:
+            print(f"  • {f}")
+    if factors_malicious:
+        print("[red]Malicious factors:[/red]")
+        for f in factors_malicious:
+            print(f"  • {f}")
+    if not (factors_benign or factors_warn or factors_malicious):
+        print("  None detected.")

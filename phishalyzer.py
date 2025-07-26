@@ -3,6 +3,7 @@ import os
 from analyzer import parser
 from analyzer import header_analyzer
 from analyzer import ioc_extractor
+from analyzer import url_extractor
 from rich import print
 
 API_KEY_FILE = os.path.expanduser("~/.phishalyzer_vt_api_key")
@@ -37,7 +38,6 @@ def prompt_api_key():
             elif choice == "2":
                 print(f"Saved API Key: {saved_key}\n")
             elif choice == "3":
-                # Prompt for new key
                 print(
                     "Enter your [blue]VirusTotal[/blue] API key "
                     "(create an account at https://virustotal.com/gui/my-apikey), or press Enter to return to options:"
@@ -49,7 +49,7 @@ def prompt_api_key():
                     return user_key
                 else:
                     print("Returning to options menu.\n")
-                    continue  # Go back to options menu
+                    continue
             elif choice == "4":
                 try:
                     os.remove(API_KEY_FILE)
@@ -63,7 +63,6 @@ def prompt_api_key():
             else:
                 print("Invalid input. Please enter a number between 1 and 5.")
 
-    # No saved key or after deleting:
     print(
         "Enter your [blue]VirusTotal[/blue] API key "
         "(create an account at https://virustotal.com/gui/my-apikey), or press Enter to skip:"
@@ -99,6 +98,9 @@ def main():
     print()  # Blank line between header analysis and IP analysis
     ioc_extractor.print_centered_header("IP ADDRESS ANALYSIS")
     ioc_extractor.analyze_ips(msg_obj, vt_api_key)
+
+    print()  # Blank line between IP and URL analysis
+    url_extractor.analyze_urls(msg_obj, vt_api_key)
 
 if __name__ == "__main__":
     main()

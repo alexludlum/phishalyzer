@@ -161,8 +161,6 @@ def analyze_headers(msg_obj: Message):
             factors_malicious.append(f"{mech.upper()}: Failure or missing (value: {result})")
         elif result in WARNING_TERMS:
             concerns.append("orange")
-            # Remove the slash and just join terms with "or"
-            # Previously "Warning / Suspect" replaced with just "Warning or Suspect"
             text = f"{mech.upper()}: Warning or Suspect (value: {result})"
             factors_warn.append(text)
         elif result in PASS_TERMS:
@@ -190,9 +188,6 @@ def analyze_headers(msg_obj: Message):
     else:
         verdict = Text("Possible security concern detected.", style="orange3")
 
-    print(Text("HEADER ASSESSMENT:", style="blue"), verdict)
-    print()
-
     if factors_benign:
         print("[green]Benign factors:[/green]")
         for f in factors_benign:
@@ -210,3 +205,7 @@ def analyze_headers(msg_obj: Message):
 
     if not (factors_benign or factors_warn or factors_malicious):
         print("  None detected.")
+
+    print()
+    print(Text("HEADER ASSESSMENT:", style="blue"), verdict)
+    print()

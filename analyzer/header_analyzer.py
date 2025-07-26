@@ -1,5 +1,4 @@
 import re
-import time
 import shutil
 from email.message import Message
 from rich import print
@@ -36,14 +35,6 @@ def print_centered_header(text="EMAIL HEADER ANALYSIS"):
     print(header_line)
     print(" " * padding + text)
     print(header_line + "\n")
-
-
-def finishing_animation():
-    print("\nFinishing up", end="", flush=True)
-    for _ in range(3):
-        time.sleep(0.66)  # ~2 seconds total for 3 dots
-        print(".", end="", flush=True)
-    print("\n")
 
 
 def analyze_headers(msg_obj: Message):
@@ -188,8 +179,6 @@ def analyze_headers(msg_obj: Message):
         print("[green]Benign factors:[/green]")
         for f in factors_benign:
             print(f"  • {f}")
-
-    finishing_animation()
 
     if factors_warn:
         print("[orange3]Warning factors:[/orange3]")

@@ -4,6 +4,7 @@ from email.message import Message
 from rich import print
 from rich.text import Text
 
+# Regex to match IPv4 addresses
 IP_PATTERN = re.compile(
     r'\b('
     r'(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.'
@@ -13,13 +14,13 @@ IP_PATTERN = re.compile(
     r')\b'
 )
 
+# Improved regex for full RFC-5322 style timestamps, including HH:MM:SS GMT suffix
 DATE_PATTERN = re.compile(
     r'\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun),?\s+'
     r'\d{1,2}\s+'
     r'(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+'
-    r'\d{4}'
-    r'(?:\s+\d{2}:\d{2}(?::\d{2})?\s+[-+]\d{4})?'
-    r'\b'
+    r'\d{4}\s+'
+    r'\d{2}:\d{2}:\d{2}\s+GMT\b'
 )
 
 FAILURE_TERMS = {
@@ -161,8 +162,7 @@ def analyze_headers(msg_obj: Message):
             factors_malicious.append(f"{mech.upper()}: Failure or missing (value: {result})")
         elif result in WARNING_TERMS:
             concerns.append("orange")
-            text = f"{mech.upper()}: Warning or Suspect (value: {result})"
-            factors_warn.append(text)
+            factors_warn.append(f"{mech.upper()}: Warning or Suspect (value: {result})")
         elif result in PASS_TERMS:
             concerns.append("green")
             factors_benign.append(f"{mech.upper()}: Passed (value: {result})")

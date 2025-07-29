@@ -87,7 +87,7 @@ def print_current_config(vt_api_key, output_mode):
     else:
         output_status.append("defanged", style="green")
 
-    print(f"Current configuration: Running {api_status} and {output_status} output format.\n")
+    print("Current configuration: Running ", api_status, " and ", output_status, " output format.\n", sep="")
 
 def run_analysis(file_path, vt_api_key):
     msg_obj, filetype = parser.load_email(file_path)

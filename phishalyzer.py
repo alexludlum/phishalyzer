@@ -87,8 +87,7 @@ def print_current_config(vt_api_key, output_mode):
     else:
         output_status.append("defanged", style="green")
 
-    # Compose the full message as Text to keep colors
-    print(Text("Current configuration: Running ") + api_status + Text(" and ") + output_status + Text(" output format.\n"))
+    print(f"Current configuration: Running {api_status} and {output_status} output format.\n")
 
 def run_analysis(file_path, vt_api_key):
     msg_obj, filetype = parser.load_email(file_path)
@@ -143,8 +142,16 @@ def main():
             # Output Settings submenu
             while True:
                 print("\nOutput Settings:")
-                print("1: Fanged")
-                print("2: Defanged")
+
+                fanged_option = "1: Fanged"
+                defanged_option = "2: Defanged"
+                if output_mode == "fanged":
+                    fanged_option += " ([red]current[/red])"
+                elif output_mode == "defanged":
+                    defanged_option += " ([green]current[/green])"
+
+                print(fanged_option)
+                print(defanged_option)
                 print("3: Return to main menu")
 
                 submenu_choice = input("Enter option [1-3]: ").strip()

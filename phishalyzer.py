@@ -5,6 +5,7 @@ from analyzer import header_analyzer
 from analyzer import ioc_extractor
 from analyzer import url_extractor
 from rich import print
+from rich.text import Text
 
 API_KEY_FILE = os.path.expanduser("~/.phishalyzer_vt_api_key")
 
@@ -73,6 +74,22 @@ def prompt_api_key_menu():
             return None
     return saved_key
 
+def print_current_config(vt_api_key, output_mode):
+    api_status = Text()
+    if vt_api_key:
+        api_status.append("with API key", style="blue")
+    else:
+        api_status.append("without API key", style="red")
+
+    output_status = Text()
+    if output_mode == "fanged":
+        output_status.append("fanged", style="red")
+    else:
+        output_status.append("defanged", style="green")
+
+    # Compose the full message as Text to keep colors
+    print(Text("Current configuration: Running ") + api_status + Text(" and ") + output_status + Text(" output format.\n"))
+
 def run_analysis(file_path, vt_api_key):
     msg_obj, filetype = parser.load_email(file_path)
     print(f"Detected file type: {filetype}")
@@ -103,6 +120,8 @@ def main():
         print("2: VirusTotal API Settings")
         print("3: Output Settings")
         print("4: Exit")
+
+        print_current_config(vt_api_key, output_mode)
 
         choice = input("Enter option [1-4] (default 1): ").strip()
 

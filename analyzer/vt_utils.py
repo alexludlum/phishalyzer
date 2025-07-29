@@ -24,3 +24,5 @@ def check_url_vt(url, api_key):
         "malicious": data.get("malicious", 0),
         "suspicious": data.get("suspicious", 0)
     }
+
+#filename: vt_utils.py

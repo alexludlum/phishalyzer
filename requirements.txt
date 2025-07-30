@@ -6,3 +6,6 @@ virustotal-python
 email-validator
 playwright
 rich
+PyMuPDF
+pyzbar
+Pillow

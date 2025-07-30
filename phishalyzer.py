@@ -4,6 +4,7 @@ from analyzer import parser
 from analyzer import header_analyzer
 from analyzer import ioc_extractor
 from analyzer import url_extractor
+from analyzer import attachment_analyzer  # New import
 from rich import print
 from rich.text import Text
 
@@ -70,7 +71,7 @@ def prompt_api_key_menu():
             print("API key saved for future runs.\n")
             return user_key
         else:
-            print("Continuing without VirusTotal API key. IP reputation checks will be skipped.\n")
+            print("Continuing without VirusTotal API key. Reputation checks will be skipped.\n")
             return None
     return saved_key
 
@@ -94,14 +95,24 @@ def run_analysis(file_path, vt_api_key):
     print(f"Detected file type: {filetype}")
     print(f"Subject: {msg_obj.get('Subject')}\n")
 
+    # Header analysis
     header_analyzer.analyze_headers(msg_obj)
 
     print()  # Blank line between header analysis and IP analysis
+    
+    # IP analysis
     ioc_extractor.print_centered_header("IP ADDRESS ANALYSIS")
     ioc_extractor.analyze_ips(msg_obj, api_key=vt_api_key)
 
     print()  # Blank line between IP and URL analysis
+    
+    # URL analysis
     url_extractor.analyze_urls(msg_obj, api_key=vt_api_key)
+
+    print()  # Blank line between URL and attachment analysis
+    
+    # Attachment analysis
+    attachment_analyzer.analyze_attachments(msg_obj, api_key=vt_api_key)
 
 def main():
     global output_mode
@@ -113,66 +124,95 @@ def main():
 
     vt_api_key = get_saved_api_key()
 
-    while True:
-        print("\nMain Menu:")
-        print("1: Start script [ENTER]")
-        print("2: VirusTotal API Settings")
-        print("3: Output Settings")
-        print("4: Exit")
+    try:
+        while True:
+            print("\nMain Menu:")
+            print("1: Start script [ENTER]")
+            print("2: VirusTotal API Settings")
+            print("3: Output Settings")
+            print("4: Exit")
 
-        print_current_config(vt_api_key, output_mode)
+            print_current_config(vt_api_key, output_mode)
 
-        choice = input("Enter option [1-4] (default 1): ").strip()
+            try:
+                choice = input("Enter option [1-4] (default 1): ").strip()
+            except KeyboardInterrupt:
+                print(Text("\n\nExiting...", style=None))
+                break
 
-        if choice == "" or choice == "1":
-            # Start script
-            if not file_path_arg:
-                file_path = input("Enter path to .eml or .msg file: ").strip()
-            else:
-                file_path = file_path_arg
-
-            # Refresh API key each run to respect possible user changes
-            vt_api_key = get_saved_api_key()
-            run_analysis(file_path, vt_api_key)
-            # After run, return to main menu
-        elif choice == "2":
-            # VirusTotal API Settings submenu
-            vt_api_key = prompt_api_key_menu()
-        elif choice == "3":
-            # Output Settings submenu
-            while True:
-                print("\nOutput Settings:")
-
-                fanged_option = "1: Fanged"
-                defanged_option = "2: Defanged"
-                if output_mode == "fanged":
-                    fanged_option += " ([red]current[/red])"
-                elif output_mode == "defanged":
-                    defanged_option += " ([green]current[/green])"
-
-                print(fanged_option)
-                print(defanged_option)
-                print("3: Return to main menu")
-
-                submenu_choice = input("Enter option [1-3]: ").strip()
-
-                if submenu_choice == "1":
-                    output_mode = "fanged"
-                    print("Output mode set to [red]Fanged[/red].")
-                    break
-                elif submenu_choice == "2":
-                    output_mode = "defanged"
-                    print("Output mode set to [green]Defanged[/green].")
-                    break
-                elif submenu_choice == "3":
-                    break
+            if choice == "" or choice == "1":
+                # Start script
+                if not file_path_arg:
+                    try:
+                        file_path = input("Enter path to .eml or .msg file: ").strip()
+                    except KeyboardInterrupt:
+                        print("\n\nOperation cancelled. Returning to main menu...")
+                        continue
                 else:
-                    print("Invalid input. Please enter 1, 2, or 3.")
-        elif choice == "4":
-            print("Exiting.")
-            break
-        else:
-            print("Invalid input. Please enter a number between 1 and 4.")
+                    file_path = file_path_arg
+
+                # Refresh API key each run to respect possible user changes
+                vt_api_key = get_saved_api_key()
+                try:
+                    run_analysis(file_path, vt_api_key)
+                except KeyboardInterrupt:
+                    print("\n\nAnalysis cancelled. Returning to main menu...")
+                    continue
+                except Exception as e:
+                    print(f"\n[red]Error during analysis: {e}[/red]")
+                    continue
+                # After run, return to main menu
+            elif choice == "2":
+                # VirusTotal API Settings submenu
+                try:
+                    vt_api_key = prompt_api_key_menu()
+                except KeyboardInterrupt:
+                    print("\n\nReturning to main menu...")
+                    continue
+            elif choice == "3":
+                # Output Settings submenu
+                try:
+                    while True:
+                        print("\nOutput Settings:")
+
+                        fanged_option = "1: Fanged"
+                        defanged_option = "2: Defanged"
+                        if output_mode == "fanged":
+                            fanged_option += " ([red]current[/red])"
+                        elif output_mode == "defanged":
+                            defanged_option += " ([green]current[/green])"
+
+                        print(fanged_option)
+                        print(defanged_option)
+                        print("3: Return to main menu")
+
+                        submenu_choice = input("Enter option [1-3]: ").strip()
+
+                        if submenu_choice == "1":
+                            output_mode = "fanged"
+                            print("Output mode set to [red]Fanged[/red].")
+                            break
+                        elif submenu_choice == "2":
+                            output_mode = "defanged"
+                            print("Output mode set to [green]Defanged[/green].")
+                            break
+                        elif submenu_choice == "3":
+                            break
+                        else:
+                            print("Invalid input. Please enter 1, 2, or 3.")
+                except KeyboardInterrupt:
+                    print("\n\nReturning to main menu...")
+                    continue
+            elif choice == "4":
+                print("Exiting.")
+                break
+            else:
+                print("Invalid input. Please enter a number between 1 and 4.")
+    
+    except KeyboardInterrupt:
+        print(Text("\n\nExiting...", style=None))
+    except Exception as e:
+        print(f"\n[red]Unexpected error: {e}[/red]")
 
 if __name__ == "__main__":
     main()

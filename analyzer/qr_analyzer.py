@@ -186,85 +186,38 @@ def analyze_pdf_qr_codes(attachment_result, api_key):
         return {
             'qr_found': False,
             'error': f"Missing dependencies: {', '.join(missing_deps)}",
+            'qr_results': [],
             'urls_found': []
         }
     
     # Only analyze PDFs
     if not attachment_result['filename'].lower().endswith('.pdf'):
-        return {'qr_found': False, 'error': None, 'urls_found': []}
-    
-    # Get PDF content from the attachment
-    content = attachment_result.get('content')
-    if not content:
-        return {'qr_found': False, 'error': "No PDF content available", 'urls_found': []}
-    
-    # Extract images from PDF
-    images = extract_images_from_pdf(content)
-    if not images:
-        return {'qr_found': False, 'error': "No images found in PDF", 'urls_found': []}
-    
-    # Scan images for QR codes
-    qr_results = []
-    url_cache = {}
-    
-    for img_info in images:
-        qr_codes = detect_qr_codes_in_image(img_info['image'])
-        
-        for qr in qr_codes:
-            qr_data = qr['data']
-            
-            # Check if QR contains a URL
-            if is_url(qr_data):
-                verdict, comment = check_url_virustotal_qr(qr_data, api_key, url_cache)
-                
-                qr_results.append({
-                    'page': img_info['page'],
-                    'type': qr['type'],
-                    'url': qr_data,
-                    'verdict': verdict,
-                    'comment': comment
-                })
-            else:
-                # Non-URL QR code data
-                qr_results.append({
-                    'page': img_info['page'],
-                    'type': qr['type'],
-                    'data': qr_data,
-                    'verdict': 'info',
-                    'comment': 'Non-URL QR code data'
-                })
-    
-    return {
-        'qr_found': len(qr_results) > 0,
-        'error': None,
-        'qr_results': qr_results,
-        'urls_found': [r for r in qr_results if 'url' in r]
-    }
-
-def analyze_pdf_qr_codes(attachment_result, api_key):
-    """Analyze PDF attachment for QR codes and return findings."""
-    # Check dependencies
-    missing_deps = check_qr_dependencies()
-    if missing_deps:
         return {
-            'qr_found': False,
-            'error': f"Missing dependencies: {', '.join(missing_deps)}",
+            'qr_found': False, 
+            'error': None, 
+            'qr_results': [],
             'urls_found': []
         }
-    
-    # Only analyze PDFs
-    if not attachment_result['filename'].lower().endswith('.pdf'):
-        return {'qr_found': False, 'error': None, 'urls_found': []}
     
     # Get PDF content from the attachment
     content = attachment_result.get('content')
     if not content:
-        return {'qr_found': False, 'error': "No PDF content available", 'urls_found': []}
+        return {
+            'qr_found': False, 
+            'error': "No PDF content available", 
+            'qr_results': [],
+            'urls_found': []
+        }
     
     # Extract images from PDF
     images = extract_images_from_pdf(content)
     if not images:
-        return {'qr_found': False, 'error': "No images found in PDF", 'urls_found': []}
+        return {
+            'qr_found': False, 
+            'error': "No images found in PDF", 
+            'qr_results': [],
+            'urls_found': []
+        }
     
     # Scan images for QR codes
     qr_results = []
@@ -306,44 +259,55 @@ def analyze_pdf_qr_codes(attachment_result, api_key):
 
 def display_qr_analysis(attachment_index, qr_analysis):
     """Display QR code analysis results with proper formatting."""
-    if qr_analysis['error']:
+    if qr_analysis.get('error'):
+        error_text = Text("  QR Analysis: ")
         if "Missing dependencies" in qr_analysis['error']:
-            print(f"  [orange3]QR Analysis: {qr_analysis['error']}[/orange3]")
+            error_text.append(qr_analysis['error'], style="orange3")
         else:
-            print(f"  QR Analysis: {qr_analysis['error']}")
+            error_text.append(qr_analysis['error'])
+        print(error_text)
         return
     
-    if not qr_analysis['qr_found']:
-        print("  QR Analysis: No QR codes detected")
+    if not qr_analysis.get('qr_found'):
+        no_qr_text = Text("  QR Analysis: No QR codes detected")
+        print(no_qr_text)
         return
     
-    print("  [red]QR Code Detected! Details:[/red]")
+    # QR codes detected header
+    header_text = Text("  ")
+    header_text.append("QR Code Detected! Details:", style="red")
+    print(header_text)
     
-    for i, qr in enumerate(qr_analysis['qr_results'], 1):
+    # Display each QR code
+    for i, qr in enumerate(qr_analysis.get('qr_results', []), 1):
         if 'url' in qr:
             # URL QR code
             url = qr['url']
             verdict = qr['verdict']
             comment = qr['comment']
             
-            # Color code the verdict
-            if verdict == "malicious":
-                verdict_text = Text("MALICIOUS", style="red")
-            elif verdict == "suspicious":
-                verdict_text = Text("SUSPICIOUS", style="yellow")
-            elif verdict == "benign":
-                verdict_text = Text("BENIGN", style="green")
-            else:
-                verdict_text = Text("UNCHECKED", style="orange3")
+            # QR code URL line
+            qr_url_text = Text(f"    QR {i} (Page {qr['page']}): ")
+            qr_url_text.append(url, style="yellow")
+            print(qr_url_text)
             
-            print(f"    QR {i} (Page {qr['page']}): [yellow]{url}[/yellow]")
+            # Verdict line with consistent color scheme
+            verdict_colors = {
+                "malicious": "red",
+                "suspicious": "yellow",
+                "benign": "green",
+                "unchecked": "orange3"
+            }
+            verdict_color = verdict_colors.get(verdict, "orange3")
             
-            # Create verdict line
-            verdict_line = Text("    Verdict: ")
-            verdict_line.append(verdict_text)
-            verdict_line.append(f" ({comment})")
-            print(verdict_line)
+            verdict_text = Text("    Verdict: ")
+            verdict_text.append(verdict.upper(), style=verdict_color)
+            verdict_text.append(f" ({comment})")
+            print(verdict_text)
         else:
             # Non-URL QR code
-            print(f"    QR {i} (Page {qr['page']}): {qr['data']}")
-            print(f"    Type: {qr['type']}")
+            non_url_text = Text(f"    QR {i} (Page {qr['page']}): {qr['data']}")
+            print(non_url_text)
+            
+            type_text = Text(f"    Type: {qr['type']}")
+            print(type_text)

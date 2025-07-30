@@ -8,7 +8,7 @@ import shutil
 import mimetypes
 import base64
 from email.message import EmailMessage
-from . import qr_analyzer  # Import the new QR analyzer
+from . import qr_analyzer
 
 def print_centered_header(title: str = "ATTACHMENT ANALYSIS"):
     term_width = shutil.get_terminal_size().columns
@@ -164,7 +164,6 @@ def check_file_hash_virustotal(file_hash, api_key, cache):
             # Get additional file info
             file_info = data.get("data", {}).get("attributes", {})
             file_names = file_info.get("names", [])
-            first_seen = file_info.get("first_submission_date")
             
             if malicious > 0:
                 comment = (f"{malicious} vendor flagged this file as malicious"
@@ -243,6 +242,25 @@ def format_file_size(size_bytes):
     
     return f"{size:.1f} {size_names[i]}"
 
+def determine_risk_from_qr(qr_analysis):
+    """Determine risk level and reason based on QR analysis results."""
+    if not qr_analysis or not qr_analysis.get('qr_found'):
+        return None, None
+    
+    # Check if any QR URLs are malicious or suspicious
+    malicious_qr = any(qr.get('verdict') == 'malicious' for qr in qr_analysis.get('qr_results', []))
+    suspicious_qr = any(qr.get('verdict') == 'suspicious' for qr in qr_analysis.get('qr_results', []))
+    
+    qr_count = len(qr_analysis.get('qr_results', []))
+    qr_text = "QR code" if qr_count == 1 else "QR codes"
+    
+    if malicious_qr:
+        return "high", f"Malicious {qr_text} detected"
+    elif suspicious_qr:
+        return "high", f"Suspicious {qr_text} detected"
+    else:
+        return "high", f"{qr_text} detected"
+
 def analyze_attachments(msg_obj, api_key):
     """Main function to analyze email attachments."""
     print_centered_header()
@@ -250,7 +268,8 @@ def analyze_attachments(msg_obj, api_key):
     attachments = extract_attachments(msg_obj)
     
     if not attachments:
-        print("[green]No attachments found in this email.[/green]\n")
+        print(Text("No attachments found in this email.", style="green"))
+        print()
         return []
     
     # Create properly colored text for attachment count
@@ -265,7 +284,9 @@ def analyze_attachments(msg_obj, api_key):
     
     cache = {}
     results = []
+    total_qr_count = 0
     
+    # Process each attachment
     for i, attachment in enumerate(attachments, 1):
         filename = attachment['filename']
         content_type = attachment['content_type']
@@ -275,8 +296,8 @@ def analyze_attachments(msg_obj, api_key):
         # Calculate file hash
         file_hash = calculate_file_hash(content) if content else "N/A"
         
-        # Categorize risk
-        risk_level, risk_reason = categorize_attachment_risk(filename, content_type, size)
+        # Basic risk categorization
+        base_risk_level, base_risk_reason = categorize_attachment_risk(filename, content_type, size)
         
         # Check with VirusTotal if we have content
         vt_verdict = "unchecked"
@@ -285,116 +306,131 @@ def analyze_attachments(msg_obj, api_key):
         if content and file_hash != "N/A":
             vt_verdict, vt_comment = check_file_hash_virustotal(file_hash, api_key, cache)
         
+        # QR Code analysis (run once per attachment)
+        qr_analysis = None
+        if filename.lower().endswith('.pdf'):
+            qr_analysis = qr_analyzer.analyze_pdf_qr_codes({
+                'filename': filename,
+                'content': content,
+                'content_type': content_type,
+                'size': size,
+                'hash': file_hash
+            }, api_key)
+            
+            if qr_analysis.get('qr_found'):
+                total_qr_count += len(qr_analysis.get('qr_results', []))
+        
+        # Determine final risk level (considering QR codes)
+        qr_risk_level, qr_risk_reason = determine_risk_from_qr(qr_analysis)
+        
+        if qr_risk_level:
+            # QR codes detected - elevate risk
+            if base_risk_level == "low":
+                final_risk_level = qr_risk_level
+                final_risk_reason = qr_risk_reason
+            else:
+                final_risk_level = max(base_risk_level, qr_risk_level, key=lambda x: {"low": 0, "medium": 1, "high": 2}[x])
+                final_risk_reason = f"{base_risk_reason}; {qr_risk_reason}"
+        else:
+            # No QR codes
+            final_risk_level = base_risk_level
+            final_risk_reason = base_risk_reason
+        
         results.append({
             'index': i,
             'filename': filename,
             'content_type': content_type,
             'size': size,
             'hash': file_hash,
-            'risk_level': risk_level,
-            'risk_reason': risk_reason,
+            'base_risk_level': base_risk_level,
+            'final_risk_level': final_risk_level,
+            'final_risk_reason': final_risk_reason,
             'vt_verdict': vt_verdict,
             'vt_comment': vt_comment,
-            'content': content  # Store content for QR analysis
+            'qr_analysis': qr_analysis
         })
     
-    # Sort by risk level and VT verdict
+    # Sort by final risk level and VT verdict
     risk_priority = {"high": 0, "medium": 1, "low": 2, "unknown": 3}
     vt_priority = {"malicious": 0, "suspicious": 1, "unknown": 2, "unchecked": 2, "benign": 3}
     
     results.sort(key=lambda x: (
-        risk_priority.get(x['risk_level'], 4),
+        risk_priority.get(x['final_risk_level'], 4),
         vt_priority.get(x['vt_verdict'], 5)
     ))
     
-    # Display results
-    qr_codes_found = False  # Track if any QR codes were found
-    total_qr_count = 0  # Track total number of QR codes
-    
+    # Display results with consistent color handling
     for result in results:
-        print(f"[blue bold]Attachment {result['index']}:[/blue bold]")
-        print(f"  Filename: [yellow]{result['filename']}[/yellow]")
-        print(f"  Type: {result['content_type']}")
+        # Attachment header
+        header_text = Text()
+        header_text.append(f"Attachment {result['index']}:", style="blue bold")
+        print(header_text)
         
-        # Create size line without Rich markup interpretation
-        size_line = Text("  Size: ")
-        size_line.append(format_file_size(result['size']))
-        print(size_line)
+        # Filename
+        filename_text = Text("  Filename: ")
+        filename_text.append(result['filename'], style="yellow")
+        print(filename_text)
         
+        # Type
+        type_text = Text("  Type: ")
+        type_text.append(result['content_type'])
+        print(type_text)
+        
+        # Size
+        size_text = Text("  Size: ")
+        size_text.append(format_file_size(result['size']))
+        print(size_text)
+        
+        # SHA256 (color-coded by VT verdict)
         if result['hash'] != "N/A":
-            # Color the hash based on VirusTotal verdict
-            if result['vt_verdict'] == "malicious":
-                hash_color = "red"
-            elif result['vt_verdict'] == "suspicious":
-                hash_color = "yellow"
-            elif result['vt_verdict'] == "benign":
-                hash_color = "green"
-            else:  # unknown or unchecked
-                hash_color = "orange3"
+            hash_colors = {
+                "malicious": "red",
+                "suspicious": "yellow", 
+                "benign": "green",
+                "unknown": "orange3",
+                "unchecked": "orange3"
+            }
+            hash_color = hash_colors.get(result['vt_verdict'], "orange3")
             
-            print(f"  SHA256: [{hash_color}]{result['hash']}[/{hash_color}]")
+            hash_text = Text("  SHA256: ")
+            hash_text.append(result['hash'], style=hash_color)
+            print(hash_text)
         
-        # QR Code analysis for PDFs (do this before risk assessment display)
-        qr_analysis = None
-        if result['filename'].lower().endswith('.pdf'):
-            qr_analysis = qr_analyzer.analyze_pdf_qr_codes(result, api_key)
-            if qr_analysis['qr_found']:
-                qr_codes_found = True
-                total_qr_count += len(qr_analysis.get('qr_results', []))
+        # Risk Level (color-coded consistently)
+        risk_colors = {"high": "red", "medium": "yellow", "low": "green", "unknown": "orange3"}
+        risk_color = risk_colors.get(result['final_risk_level'], "white")
         
-        # Risk assessment - updated to account for QR codes
-        original_risk_level = result['risk_level']
-        original_risk_reason = result['risk_reason']
+        risk_text = Text("  Risk Level: ")
+        risk_text.append(result['final_risk_level'].upper(), style=risk_color)
+        risk_text.append(f" ({result['final_risk_reason']})")
+        print(risk_text)
         
-        # Elevate risk if QR codes are found
-        if qr_analysis and qr_analysis['qr_found']:
-            if original_risk_level == "low":
-                display_risk_level = "high"
-                display_risk_reason = "QR code detected in attachment"
-            else:
-                display_risk_level = original_risk_level
-                display_risk_reason = f"{original_risk_reason}; QR code detected"
-        else:
-            display_risk_level = original_risk_level
-            display_risk_reason = original_risk_reason
+        # VirusTotal verdict (color-coded consistently)
+        vt_colors = {
+            "malicious": "red",
+            "suspicious": "yellow",
+            "benign": "green", 
+            "unknown": "orange3",
+            "unchecked": "orange3"
+        }
+        vt_color = vt_colors.get(result['vt_verdict'], "orange3")
         
-        risk_color = {"high": "red", "medium": "yellow", "low": "green", "unknown": "orange3"}
-        risk_text = Text(display_risk_level.upper(), style=risk_color.get(display_risk_level, "white"))
+        vt_text = Text("  VirusTotal: ")
+        vt_text.append(result['vt_verdict'].upper(), style=vt_color)
+        vt_text.append(f" ({result['vt_comment']})")
+        print(vt_text)
         
-        # Create risk level line with proper color preservation
-        risk_line = Text("  Risk Level: ")
-        risk_line.append(risk_text)
-        risk_line.append(f" ({display_risk_reason})")
-        print(risk_line)
-        
-        # VirusTotal verdict
-        if result['vt_verdict'] == "malicious":
-            vt_text = Text("MALICIOUS", style="red")
-        elif result['vt_verdict'] == "suspicious":
-            vt_text = Text("SUSPICIOUS", style="yellow")
-        elif result['vt_verdict'] == "benign":
-            vt_text = Text("BENIGN", style="green")
-        elif result['vt_verdict'] == "unknown":
-            vt_text = Text("UNKNOWN", style="orange3")
-        else:
-            vt_text = Text("UNCHECKED", style="orange3")
-        
-        # Create the full VirusTotal line with proper color preservation
-        vt_line = Text("  VirusTotal: ")
-        vt_line.append(vt_text)
-        vt_line.append(f" ({result['vt_comment']})")
-        print(vt_line)
-        
-        # Display QR Code analysis
-        if qr_analysis:
-            qr_analyzer.display_qr_analysis(result['index'], qr_analysis)
+        # QR Code analysis (if applicable)
+        if result['qr_analysis']:
+            qr_analyzer.display_qr_analysis(result['index'], result['qr_analysis'])
         
         print()
     
-    # Summary assessment
-    high_risk_count = sum(1 for r in results if r['risk_level'] == 'high')
+    # Summary assessment (using final risk levels)
+    final_high_risk_count = sum(1 for r in results if r['final_risk_level'] == 'high')
     malicious_count = sum(1 for r in results if r['vt_verdict'] == 'malicious')
     suspicious_count = sum(1 for r in results if r['vt_verdict'] == 'suspicious')
+    qr_codes_found = total_qr_count > 0
     
     if malicious_count > 0:
         summary = Text("CRITICAL: Malicious attachments detected!", style="red")
@@ -404,12 +440,16 @@ def analyze_attachments(msg_obj, api_key):
             summary = Text("WARNING: QR code detected - highly suspicious!", style="red")
         else:
             summary = Text("WARNING: QR codes detected - highly suspicious!", style="red")
-    elif high_risk_count > 0 or suspicious_count > 0:
+    elif final_high_risk_count > 0 or suspicious_count > 0:
         summary = Text("WARNING: Suspicious attachments detected!", style="orange3")
     else:
         summary = Text("Attachments appear benign, but verify manually.", style="green")
     
-    print(Text("ATTACHMENT ASSESSMENT:", style="blue bold"), summary)
+    assessment_text = Text()
+    assessment_text.append("ATTACHMENT ASSESSMENT:", style="blue bold")
+    assessment_text.append(" ")
+    assessment_text.append(summary)
+    print(assessment_text)
     print()
     
     return results

@@ -14,14 +14,31 @@ IP_PATTERN = re.compile(
     r')\b'
 )
 
-# Improved regex for full RFC-5322 style timestamps, including HH:MM:SS GMT suffix
-DATE_PATTERN = re.compile(
-    r'\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun),?\s+'
-    r'\d{1,2}\s+'
-    r'(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+'
-    r'\d{4}\s+'
-    r'\d{2}:\d{2}:\d{2}\s+GMT\b'
-)
+# Enhanced regex for timestamps in Received hops - multiple patterns
+RECEIVED_DATE_PATTERNS = [
+    # Full RFC-5322 style timestamps (Fri, 25 Jul 2025 17:03:12 -0700 (PDT))
+    re.compile(
+        r'\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun),?\s+'
+        r'\d{1,2}\s+'
+        r'(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+'
+        r'\d{4}\s+'
+        r'\d{2}:\d{2}:\d{2}\s*'
+        r'(?:[-+]\d{4})?'
+        r'(?:\s*\([A-Z]{2,4}\))?'  # Timezone abbreviation in parentheses like (PDT)
+    ),
+    # ISO format (2025-07-25T17:03:12)
+    re.compile(r'\b\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|[-+]\d{2}:?\d{2})?\b'),
+    # Simple date format (25 Jul 2025)
+    re.compile(r'\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}\b'),
+    # Time with timezone (17:03:12 -0700)
+    re.compile(r'\b\d{2}:\d{2}:\d{2}\s*[-+]\d{4}\b'),
+    # Time with GMT/UTC (18:02:58 GMT)
+    re.compile(r'\b\d{2}:\d{2}:\d{2}\s+(?:GMT|UTC)\b'),
+    # Simple time format (17:03:12)
+    re.compile(r'\b\d{2}:\d{2}:\d{2}\b'),
+    # Timezone abbreviations in parentheses (PDT), (EST), etc.
+    re.compile(r'\([A-Z]{2,4}\)'),
+]
 
 FAILURE_TERMS = {
     "fail", "softfail", "temperror", "permerror", "invalid",
@@ -51,12 +68,42 @@ def analyze_headers(msg_obj: Message):
     def color_key(key: str) -> Text:
         return Text(key + ":", style="blue")
 
-    def highlight_ips_and_dates(text: str) -> Text:
+    def highlight_ips_only(text: str) -> Text:
+        """Highlight only IP addresses, not timestamps (for basic headers)."""
         t = Text(text)
         for match in IP_PATTERN.finditer(text):
             t.stylize("yellow", match.start(), match.end())
-        for match in DATE_PATTERN.finditer(text):
-            t.stylize("blue", match.start(), match.end())
+        return t
+
+    def highlight_ips_and_dates_in_hops(text: str) -> Text:
+        """Highlight IPs and timestamps specifically for Received hops."""
+        t = Text(text)
+        
+        # Track all matches to avoid overlapping
+        matches = []
+        
+        # Find IP addresses
+        for match in IP_PATTERN.finditer(text):
+            matches.append((match.start(), match.end(), "yellow"))
+        
+        # Find dates/timestamps using patterns designed for Received hops
+        for pattern in RECEIVED_DATE_PATTERNS:
+            for match in pattern.finditer(text):
+                # Check if this overlaps with existing matches
+                overlaps = any(
+                    not (match.end() <= start or match.start() >= end)
+                    for start, end, _ in matches
+                )
+                if not overlaps:
+                    matches.append((match.start(), match.end(), "blue"))
+        
+        # Sort matches by start position (reversed for proper application)
+        matches.sort(key=lambda x: x[0], reverse=True)
+        
+        # Apply styling
+        for start, end, color in matches:
+            t.stylize(color, start, end)
+        
         return t
 
     def color_auth_word(word: str) -> Text:
@@ -73,6 +120,7 @@ def analyze_headers(msg_obj: Message):
     def color_authentication_results(value: str) -> Text:
         tokens = re.split(r'(\s+|;)', value)
         colored_tokens = []
+        
         for token in tokens:
             if '=' in token:
                 mech, sep, status = token.partition('=')
@@ -85,11 +133,10 @@ def analyze_headers(msg_obj: Message):
         for t in colored_tokens:
             result.append(t)
 
+        # Apply IP highlighting only (no timestamps in auth results)
         plain = result.plain
         for match in IP_PATTERN.finditer(plain):
             result.stylize("yellow", match.start(), match.end())
-        for match in DATE_PATTERN.finditer(plain):
-            result.stylize("blue", match.start(), match.end())
 
         return result
 
@@ -97,7 +144,8 @@ def analyze_headers(msg_obj: Message):
         if key == "Authentication-Results":
             return color_authentication_results(val)
         else:
-            t = highlight_ips_and_dates(val)
+            # For basic headers, only highlight IPs, not timestamps
+            t = highlight_ips_only(val)
             lw = val.lower()
             if any(term in lw for term in FAILURE_TERMS):
                 return Text(val.upper(), style="red")
@@ -131,11 +179,7 @@ def analyze_headers(msg_obj: Message):
     hops = msg_obj.get_all("Received", [])
     for i, hop in enumerate(hops, 1):
         label = Text(f"[{i}]", style="blue")
-        hop_text = Text(hop)
-        for match in IP_PATTERN.finditer(hop):
-            hop_text.stylize("yellow", match.start(), match.end())
-        for match in DATE_PATTERN.finditer(hop):
-            hop_text.stylize("blue", match.start(), match.end())
+        hop_text = highlight_ips_and_dates_in_hops(hop)  # Only apply timestamp coloring here
         print(label, hop_text)
 
     print()

@@ -5,12 +5,28 @@ from analyzer import header_analyzer
 from analyzer import ioc_extractor
 from analyzer import url_extractor
 from analyzer import attachment_analyzer
+from analyzer import defanger
 from rich import print
 from rich.text import Text
 
 API_KEY_FILE = os.path.expanduser("~/.phishalyzer_vt_api_key")
+OUTPUT_MODE_FILE = os.path.expanduser("~/.phishalyzer_output_mode")
 
-output_mode = "fanged"  # default output mode
+output_mode = "fanged"  # default output mode - accessible globally
+
+def get_saved_output_mode():
+    """Get saved output mode from file."""
+    if os.path.exists(OUTPUT_MODE_FILE):
+        with open(OUTPUT_MODE_FILE, "r") as f:
+            mode = f.read().strip()
+            if mode in ['fanged', 'defanged']:
+                return mode
+    return "fanged"  # default
+
+def save_output_mode(mode: str):
+    """Save output mode to file."""
+    with open(OUTPUT_MODE_FILE, "w") as f:
+        f.write(mode.strip())
 
 def get_saved_api_key():
     """Get saved VirusTotal API key from file."""
@@ -113,6 +129,15 @@ def print_current_config(vt_api_key, output_mode):
 def run_analysis(file_path, vt_api_key):
     """Run complete email analysis."""
     try:
+        
+        # Show defanging status if enabled
+        if output_mode == "defanged":
+            status_text = Text()
+            status_text.append("🛡️ DEFANGED OUTPUT MODE: ", style="blue bold")
+            status_text.append("URLs and IPs are displayed in safe format", style="green")
+            print(status_text)
+            print()
+        
         msg_obj, filetype = parser.load_email(file_path)
         print(f"Detected file type: {filetype}")
         
@@ -187,7 +212,10 @@ def main():
     args = parser_args.parse_args()
 
     file_path_arg = args.file_path
+    
+    # Load saved settings
     vt_api_key = get_saved_api_key()
+    output_mode = get_saved_output_mode()
 
     try:
         while True:

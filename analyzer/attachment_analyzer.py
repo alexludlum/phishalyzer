@@ -4,21 +4,14 @@ import hashlib
 import requests
 from rich import print
 from rich.text import Text
-import shutil
 import mimetypes
 import base64
 from email.message import EmailMessage
 from . import qr_analyzer
+from . import defanger
 
 def print_centered_header(title: str = "ATTACHMENT ANALYSIS"):
-    term_width = shutil.get_terminal_size().columns
-    max_width = min(term_width, 80)
-    header_line = "=" * max_width
-    padding = (max_width - len(title)) // 2
-    if padding < 0:
-        padding = 0
-    print(header_line)
-    print(" " * padding + title)
+    header_line = f"=== {title} ==="
     print(header_line + "\n")
 
 # Suspicious file extensions that commonly contain malware
@@ -393,7 +386,9 @@ def analyze_attachments(msg_obj, api_key):
             hash_color = hash_colors.get(result['vt_verdict'], "orange3")
             
             hash_text = Text("  SHA256: ")
-            hash_text.append(result['hash'], style=hash_color)
+            # Apply defanging to hash if enabled (though hashes aren't typically defanged, keeping for consistency)
+            display_hash = defanger.defang_text(result['hash']) if defanger.should_defang() else result['hash']
+            hash_text.append(display_hash, style=hash_color)
             print(hash_text)
         
         # Risk Level (color-coded consistently)

@@ -3,12 +3,11 @@ import time
 import requests
 from rich import print
 import ipaddress
+from . import defanger
 
 def print_centered_header(title: str):
-    width = 80
-    print("=" * width)
-    print(title.center(width))
-    print("=" * width + "\n")
+    header_line = f"=== {title} ==="
+    print(header_line + "\n")
 
 def extract_ips_from_headers(msg_obj):
     ip_regex = r"\b(?:\d{1,3}\.){3}\d{1,3}\b"
@@ -142,6 +141,9 @@ def analyze_ips(msg_obj, api_key):
     ))
 
     for ip, country, verdict, comment in ips_with_data:
+        # Apply defanging if enabled
+        display_ip = defanger.defang_ip(ip) if defanger.should_defang() else ip
+        
         if verdict == "malicious":
             verdict_text = "[red]MALICIOUS[/red]"
         elif verdict == "suspicious":
@@ -153,6 +155,6 @@ def analyze_ips(msg_obj, api_key):
         else:
             verdict_text = "[orange3]UNKNOWN[/orange3]"
 
-        print(f"IP: [yellow]{ip}[/yellow] ({country}) - Verdict: {verdict_text} ({comment})")
+        print(f"IP: [yellow]{display_ip}[/yellow] ({country}) - Verdict: {verdict_text} ({comment})")
 
     return []

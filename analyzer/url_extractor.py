@@ -3,12 +3,11 @@ import time
 import requests
 from rich import print
 from urllib.parse import urlparse
+from . import defanger
 
 def print_centered_header(title: str):
-    width = 80
-    print("=" * width)
-    print(title.center(width))
-    print("=" * width + "\n")
+    header_line = f"=== {title} ==="
+    print(header_line + "\n")
 
 def extract_urls_from_headers(msg_obj):
     # Regex to capture URLs, including http/https and www prefixed
@@ -112,6 +111,9 @@ def analyze_urls(msg_obj, api_key):
     results.sort(key=lambda x: (sort_order.get(x[1], 3), get_domain(x[0])))
 
     for url, verdict, comment in results:
+        # Apply defanging if enabled
+        display_url = defanger.defang_url(url) if defanger.should_defang() else url
+        
         if verdict == "malicious":
             verdict_text = "[red]MALICIOUS[/red]"
         elif verdict == "unchecked":
@@ -121,6 +123,6 @@ def analyze_urls(msg_obj, api_key):
         else:
             verdict_text = "[orange3]UNKNOWN[/orange3]"
 
-        print(f"URL: [yellow]{url}[/yellow] - Verdict: {verdict_text} ({comment})")
+        print(f"URL: [yellow]{display_url}[/yellow] - Verdict: {verdict_text} ({comment})")
 
     return []

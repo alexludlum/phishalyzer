@@ -1,8 +1,8 @@
 import re
-import shutil
 from email.message import Message
 from rich import print
 from rich.text import Text
+from . import defanger
 
 # Regex to match IPv4 addresses
 IP_PATTERN = re.compile(
@@ -52,18 +52,19 @@ WARNING_TERMS = {
 }
 
 def print_centered_header(text="EMAIL HEADER ANALYSIS"):
-    term_width = shutil.get_terminal_size().columns
-    max_width = min(term_width, 80)
-    header_line = "=" * max_width
-    padding = (max_width - len(text)) // 2
-    if padding < 0:
-        padding = 0
-    print(header_line)
-    print(" " * padding + text)
+    header_line = f"=== {text} ==="
     print(header_line + "\n")
 
 def analyze_headers(msg_obj: Message):
     headers = dict(msg_obj.items())
+
+    def create_defanged_text(text_content, color_style=None):
+        """Create a Text object with defanged content if defanging is enabled."""
+        if defanger.should_defang():
+            defanged_content = defanger.defang_text(text_content)
+            return Text(defanged_content, style=color_style)
+        else:
+            return Text(text_content, style=color_style)
 
     def color_key(key: str) -> Text:
         return Text(key + ":", style="blue")
@@ -144,15 +145,18 @@ def analyze_headers(msg_obj: Message):
         if key == "Authentication-Results":
             return color_authentication_results(val)
         else:
+            # Apply defanging if enabled, then apply highlighting
+            display_text = defanger.defang_text(val) if defanger.should_defang() else val
+            
             # For basic headers, only highlight IPs, not timestamps
-            t = highlight_ips_only(val)
+            t = highlight_ips_only(display_text)
             lw = val.lower()
             if any(term in lw for term in FAILURE_TERMS):
-                return Text(val.upper(), style="red")
+                return Text(display_text.upper(), style="red")
             elif any(term in lw for term in PASS_TERMS):
-                return Text(val, style="green")
+                return Text(display_text, style="green")
             elif any(term in lw for term in WARNING_TERMS):
-                return Text(val, style="orange3")
+                return Text(display_text, style="orange3")
             return t
 
     print_centered_header()

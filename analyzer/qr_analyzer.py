@@ -5,6 +5,7 @@ from rich import print
 from rich.text import Text
 import base64
 from urllib.parse import urlparse
+from . import defanger
 
 try:
     import fitz  # PyMuPDF
@@ -287,8 +288,9 @@ def display_qr_analysis(attachment_index, qr_analysis):
             comment = qr['comment']
             
             # QR code URL line
+            display_url = defanger.defang_url(url) if defanger.should_defang() else url
             qr_url_text = Text(f"    QR {i} (Page {qr['page']}): ")
-            qr_url_text.append(url, style="yellow")
+            qr_url_text.append(display_url, style="yellow")
             print(qr_url_text)
             
             # Verdict line with consistent color scheme

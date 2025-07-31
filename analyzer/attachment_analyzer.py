@@ -10,10 +10,6 @@ from email.message import EmailMessage
 from . import qr_analyzer
 from . import defanger
 
-def print_centered_header(title: str = "ATTACHMENT ANALYSIS"):
-    header_line = f"=== {title} ==="
-    print(header_line + "\n")
-
 # Suspicious file extensions that commonly contain malware
 SUSPICIOUS_EXTENSIONS = {
     'exe', 'scr', 'bat', 'cmd', 'com', 'pif', 'vbs', 'js', 'jar', 'app',
@@ -256,7 +252,6 @@ def determine_risk_from_qr(qr_analysis):
 
 def analyze_attachments(msg_obj, api_key):
     """Main function to analyze email attachments."""
-    print_centered_header()
     
     attachments = extract_attachments(msg_obj)
     

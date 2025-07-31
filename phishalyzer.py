@@ -14,33 +14,57 @@ OUTPUT_MODE_FILE = os.path.expanduser("~/.phishalyzer_output_mode")
 
 output_mode = "fanged"  # default output mode - accessible globally
 
+def print_section_header(title: str):
+    """Print a standardized section header with consistent formatting."""
+    # Calculate padding to make all headers the same width (50 characters total)
+    total_width = 50
+    title_with_spaces = f" {title.upper()} "
+    padding_needed = total_width - len(title_with_spaces)
+    left_padding = padding_needed // 2
+    right_padding = padding_needed - left_padding
+    
+    header_line = "=" * left_padding + title_with_spaces + "=" * right_padding
+    print(f"\n{header_line}\n")
+
 def get_saved_output_mode():
     """Get saved output mode from file."""
     if os.path.exists(OUTPUT_MODE_FILE):
-        with open(OUTPUT_MODE_FILE, "r") as f:
-            mode = f.read().strip()
-            if mode in ['fanged', 'defanged']:
-                return mode
+        try:
+            with open(OUTPUT_MODE_FILE, "r") as f:
+                mode = f.read().strip()
+                if mode in ['fanged', 'defanged']:
+                    return mode
+        except Exception as e:
+            print(f"[yellow]Warning: Could not read output mode file: {e}[/yellow]")
     return "fanged"  # default
 
 def save_output_mode(mode: str):
     """Save output mode to file."""
-    with open(OUTPUT_MODE_FILE, "w") as f:
-        f.write(mode.strip())
+    try:
+        with open(OUTPUT_MODE_FILE, "w") as f:
+            f.write(mode.strip())
+    except Exception as e:
+        print(f"[red]Error saving output mode: {e}[/red]")
 
 def get_saved_api_key():
     """Get saved VirusTotal API key from file."""
     if os.path.exists(API_KEY_FILE):
-        with open(API_KEY_FILE, "r") as f:
-            key = f.read().strip()
-            if key:
-                return key
+        try:
+            with open(API_KEY_FILE, "r") as f:
+                key = f.read().strip()
+                if key:
+                    return key
+        except Exception as e:
+            print(f"[yellow]Warning: Could not read API key file: {e}[/yellow]")
     return None
 
 def save_api_key(key: str):
     """Save VirusTotal API key to file."""
-    with open(API_KEY_FILE, "w") as f:
-        f.write(key.strip())
+    try:
+        with open(API_KEY_FILE, "w") as f:
+            f.write(key.strip())
+    except Exception as e:
+        print(f"[red]Error saving API key: {e}[/red]")
 
 def prompt_api_key_menu():
     """Handle VirusTotal API key management menu."""
@@ -60,14 +84,14 @@ def prompt_api_key_menu():
                 return saved_key
                 
             if choice == "1":
-                print(f"Saved API Key: {saved_key}\n")
+                print(f"[blue]Saved API Key:[/blue] {saved_key}\n")
             elif choice == "2":
                 try:
                     os.remove(API_KEY_FILE)
-                    print("Saved API key deleted.\n")
+                    print(Text("Saved API key deleted.\n", style="red"))
                     saved_key = None
                 except FileNotFoundError:
-                    print("No saved API key found to delete.\n")
+                    print(Text("No saved API key found to delete.\n", style="orange3"))
             elif choice == "3":
                 print(
                     "Enter your [blue]VirusTotal[/blue] API key "
@@ -77,12 +101,12 @@ def prompt_api_key_menu():
                     user_key = input().strip()
                     if user_key:
                         save_api_key(user_key)
-                        print("API key saved for future runs.\n")
+                        print(Text("API key saved for future runs.\n", style="green"))
                         saved_key = user_key
                     else:
-                        print("No changes made to API key.\n")
+                        print(Text("No changes made to API key.\n", style="yellow"))
                 except KeyboardInterrupt:
-                    print(Text("\n\nNo changes made to API key.\n", style=None))
+                    print(Text("\n\nNo changes made to API key.\n", style="yellow"))
             elif choice == "4":
                 return saved_key
             else:
@@ -97,13 +121,13 @@ def prompt_api_key_menu():
             user_key = input().strip()
             if user_key:
                 save_api_key(user_key)
-                print("API key saved for future runs.\n")
+                print(Text("API key saved for future runs.\n", style="green"))
                 return user_key
             else:
-                print("Continuing without VirusTotal API key. Reputation checks will be skipped.\n")
+                print(Text("Continuing without VirusTotal API key. Reputation checks will be skipped.\n", style="yellow"))
                 return None
         except KeyboardInterrupt:
-            print(Text("\n\nContinuing without VirusTotal API key. Reputation checks will be skipped.\n", style=None))
+            print(Text("\n\nContinuing without VirusTotal API key. Reputation checks will be skipped.\n", style="yellow"))
             return None
     return saved_key
 
@@ -133,7 +157,7 @@ def run_analysis(file_path, vt_api_key):
         # Show defanging status if enabled
         if output_mode == "defanged":
             status_text = Text()
-            status_text.append("🛡️ DEFANGED OUTPUT MODE: ", style="blue bold")
+            status_text.append("DEFANGED OUTPUT MODE: ", style="blue bold")
             status_text.append("URLs and IPs are displayed in safe format", style="green")
             print(status_text)
             print()
@@ -147,19 +171,22 @@ def run_analysis(file_path, vt_api_key):
         print()
 
         # Header analysis
+        print_section_header("EMAIL HEADER ANALYSIS")
         header_analyzer.analyze_headers(msg_obj)
         print()
 
         # IP analysis
-        ioc_extractor.print_centered_header("IP ADDRESS ANALYSIS")
+        print_section_header("IP ADDRESS ANALYSIS")
         ioc_extractor.analyze_ips(msg_obj, api_key=vt_api_key)
         print()
 
         # URL analysis
+        print_section_header("URL ANALYSIS")
         url_extractor.analyze_urls(msg_obj, api_key=vt_api_key)
         print()
 
         # Attachment analysis
+        print_section_header("ATTACHMENT ANALYSIS")
         attachment_analyzer.analyze_attachments(msg_obj, api_key=vt_api_key)
         
     except FileNotFoundError:
@@ -193,11 +220,13 @@ def handle_output_settings():
 
         if submenu_choice == "1":
             output_mode = "fanged"
-            print("Output mode set to [red]Fanged[/red].")
+            save_output_mode(output_mode)  # Save the setting immediately
+            print("Output mode set to [red]Fanged[/red] and saved.")
             break
         elif submenu_choice == "2":
             output_mode = "defanged"
-            print("Output mode set to [green]Defanged[/green].")
+            save_output_mode(output_mode)  # Save the setting immediately
+            print("Output mode set to [green]Defanged[/green] and saved.")
             break
         elif submenu_choice == "3":
             break
@@ -213,9 +242,9 @@ def main():
 
     file_path_arg = args.file_path
     
-    # Load saved settings
+    # Load saved settings at startup
     vt_api_key = get_saved_api_key()
-    output_mode = get_saved_output_mode()
+    output_mode = get_saved_output_mode()  # This will now properly load the saved mode
 
     try:
         while True:

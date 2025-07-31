@@ -51,10 +51,6 @@ WARNING_TERMS = {
     "neutral", "policy", "none", "unknown"
 }
 
-def print_centered_header(text="EMAIL HEADER ANALYSIS"):
-    header_line = f"=== {text} ==="
-    print(header_line + "\n")
-
 def analyze_headers(msg_obj: Message):
     headers = dict(msg_obj.items())
 
@@ -158,8 +154,6 @@ def analyze_headers(msg_obj: Message):
             elif any(term in lw for term in WARNING_TERMS):
                 return Text(display_text, style="orange3")
             return t
-
-    print_centered_header()
 
     basics = ["From", "Return-Path", "Reply-To", "Message-ID", "Subject", "Date"]
     for key in basics:

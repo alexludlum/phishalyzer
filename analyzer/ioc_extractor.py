@@ -5,10 +5,6 @@ from rich import print
 import ipaddress
 from . import defanger
 
-def print_centered_header(title: str):
-    header_line = f"=== {title} ==="
-    print(header_line + "\n")
-
 def extract_ips_from_headers(msg_obj):
     ip_regex = r"\b(?:\d{1,3}\.){3}\d{1,3}\b"
     headers = str(msg_obj)

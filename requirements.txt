@@ -4,5 +4,5 @@ requests
 email-validator
 rich
 PyMuPDF
-pyzbar
+qreader
 Pillow

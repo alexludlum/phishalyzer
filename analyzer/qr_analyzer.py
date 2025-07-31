@@ -14,8 +14,9 @@ except ImportError:
     PYMUPDF_AVAILABLE = False
 
 try:
-    from pyzbar import pyzbar
+    from qreader import QReader
     from PIL import Image
+    import numpy as np
     QR_LIBRARIES_AVAILABLE = True
 except ImportError:
     QR_LIBRARIES_AVAILABLE = False
@@ -26,7 +27,7 @@ def check_qr_dependencies():
     if not PYMUPDF_AVAILABLE:
         missing.append("PyMuPDF (pip install PyMuPDF)")
     if not QR_LIBRARIES_AVAILABLE:
-        missing.append("pyzbar and Pillow (pip install pyzbar Pillow)")
+        missing.append("qreader and Pillow (pip install qreader Pillow)")
     
     return missing
 
@@ -70,31 +71,34 @@ def extract_images_from_pdf(pdf_content):
         return []
 
 def detect_qr_codes_in_image(pil_image):
-    """Detect and decode QR codes in a PIL Image."""
+    """Detect and decode QR codes in a PIL Image using qreader."""
     if not QR_LIBRARIES_AVAILABLE:
         return []
     
     try:
-        # Detect QR codes
-        qr_codes = pyzbar.decode(pil_image)
+        # Initialize QReader
+        qreader = QReader()
+        
+        # Convert PIL image to numpy array if needed
+        if isinstance(pil_image, Image.Image):
+            image_array = np.array(pil_image)
+        else:
+            image_array = pil_image
+        
+        # Detect and decode QR codes
+        decoded_text = qreader.detect_and_decode(image=image_array)
+        
         results = []
         
-        for qr in qr_codes:
-            try:
-                # Decode the QR code data
-                data = qr.data.decode('utf-8')
-                results.append({
-                    'type': qr.type,
-                    'data': data,
-                    'position': qr.rect
-                })
-            except UnicodeDecodeError:
-                # Handle binary data
-                results.append({
-                    'type': qr.type,
-                    'data': f"<binary data: {len(qr.data)} bytes>",
-                    'position': qr.rect
-                })
+        # qreader returns a list of decoded strings (or None for unreadable codes)
+        if decoded_text:
+            for i, text in enumerate(decoded_text):
+                if text is not None:  # Successfully decoded
+                    results.append({
+                        'type': 'QRCODE',  # qreader focuses on QR codes
+                        'data': text,
+                        'position': None  # qreader doesn't provide position info by default
+                    })
         
         return results
     

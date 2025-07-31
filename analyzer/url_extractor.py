@@ -5,10 +5,6 @@ from rich import print
 from urllib.parse import urlparse
 from . import defanger
 
-def print_centered_header(title: str):
-    header_line = f"=== {title} ==="
-    print(header_line + "\n")
-
 def extract_urls_from_headers(msg_obj):
     # Regex to capture URLs, including http/https and www prefixed
     url_regex = r"https?://[^\s<>\"']+|www\.[^\s<>\"']+"
@@ -86,7 +82,6 @@ def check_url_virustotal(url, api_key, cache):
     return cache[url]
 
 def analyze_urls(msg_obj, api_key):
-    print_centered_header("URL ANALYSIS")
     url_list = extract_urls_from_headers(msg_obj)
     if not url_list:
         print("[yellow]No URLs found in this email.[/yellow]")

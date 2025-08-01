@@ -14,9 +14,9 @@ except ImportError:
     PYMUPDF_AVAILABLE = False
 
 try:
-    from qreader import QReader
-    from PIL import Image
+    import cv2
     import numpy as np
+    from PIL import Image
     QR_LIBRARIES_AVAILABLE = True
 except ImportError:
     QR_LIBRARIES_AVAILABLE = False
@@ -27,7 +27,7 @@ def check_qr_dependencies():
     if not PYMUPDF_AVAILABLE:
         missing.append("PyMuPDF (pip install PyMuPDF)")
     if not QR_LIBRARIES_AVAILABLE:
-        missing.append("qreader and Pillow (pip install qreader Pillow)")
+        missing.append("opencv-python and Pillow (pip install opencv-python Pillow)")
     
     return missing
 
@@ -71,39 +71,45 @@ def extract_images_from_pdf(pdf_content):
         return []
 
 def detect_qr_codes_in_image(pil_image):
-    """Detect and decode QR codes in a PIL Image using qreader."""
+    """Detect and decode QR codes in a PIL Image using OpenCV."""
     if not QR_LIBRARIES_AVAILABLE:
         return []
     
     try:
-        # Initialize QReader
-        qreader = QReader()
+        # Convert PIL image to OpenCV format
+        if pil_image.mode == 'RGBA':
+            pil_image = pil_image.convert('RGB')
         
-        # Convert PIL image to numpy array if needed
-        if isinstance(pil_image, Image.Image):
-            image_array = np.array(pil_image)
-        else:
-            image_array = pil_image
+        # Convert to numpy array
+        opencv_image = np.array(pil_image)
+        
+        # Convert RGB to BGR (OpenCV uses BGR)
+        if len(opencv_image.shape) == 3:
+            opencv_image = cv2.cvtColor(opencv_image, cv2.COLOR_RGB2BGR)
+        
+        # Convert to grayscale for QR detection
+        gray = cv2.cvtColor(opencv_image, cv2.COLOR_BGR2GRAY)
+        
+        # Initialize QR code detector
+        qr_detector = cv2.QRCodeDetector()
         
         # Detect and decode QR codes
-        decoded_text = qreader.detect_and_decode(image=image_array)
+        data, points, straight_qrcode = qr_detector.detectAndDecode(gray)
         
         results = []
         
-        # qreader returns a list of decoded strings (or None for unreadable codes)
-        if decoded_text:
-            for i, text in enumerate(decoded_text):
-                if text is not None:  # Successfully decoded
-                    results.append({
-                        'type': 'QRCODE',  # qreader focuses on QR codes
-                        'data': text,
-                        'position': None  # qreader doesn't provide position info by default
-                    })
+        if data:
+            # QR code found and decoded
+            results.append({
+                'type': 'QRCODE',
+                'data': data,
+                'position': points.tolist() if points is not None else None
+            })
         
         return results
     
     except Exception as e:
-        print(f"[red]Error detecting QR codes: {e}[/red]")
+        print(f"[red]Error detecting QR codes with OpenCV: {e}[/red]")
         return []
 
 def check_url_virustotal_qr(url, api_key, cache):

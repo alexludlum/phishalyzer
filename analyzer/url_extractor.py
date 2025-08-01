@@ -2,6 +2,7 @@ import re
 import time
 import requests
 import base64
+import os
 from rich import print
 from builtins import print as builtin_print
 from rich.markup import escape
@@ -12,6 +13,58 @@ from collections import defaultdict
 # Network request timeout settings
 REQUEST_TIMEOUT = 10
 MAX_RETRIES = 3
+
+def simple_defang(text):
+    """Simple defanging function that actually works"""
+    if not text or not isinstance(text, str):
+        return text
+    
+    # Check if defanging is enabled
+    try:
+        OUTPUT_MODE_FILE = os.path.expanduser("~/.phishalyzer_output_mode")
+        if os.path.exists(OUTPUT_MODE_FILE):
+            with open(OUTPUT_MODE_FILE, "r", encoding='utf-8') as f:
+                content = f.read().strip()
+                if content != "defanged":
+                    return text  # Don't defang if not in defanged mode
+        else:
+            return text  # No settings file, don't defang
+    except:
+        return text  # Error reading file, don't defang
+    
+    # Apply defanging
+    result = text
+    
+    # Replace protocols
+    result = result.replace('https://', 'https[:]//') 
+    result = result.replace('http://', 'http[:]//') 
+    result = result.replace('ftp://', 'ftp[:]//') 
+    
+    # Replace common TLDs and domains
+    result = result.replace('.net', '[.]net')
+    result = result.replace('.com', '[.]com')
+    result = result.replace('.org', '[.]org')
+    result = result.replace('.edu', '[.]edu')
+    result = result.replace('.gov', '[.]gov')
+    result = result.replace('.mil', '[.]mil')
+    result = result.replace('.int', '[.]int')
+    result = result.replace('.co.', '[.]co[.]')
+    result = result.replace('.uk', '[.]uk')
+    result = result.replace('.de', '[.]de')
+    result = result.replace('.fr', '[.]fr')
+    result = result.replace('.io', '[.]io')
+    result = result.replace('.me', '[.]me')
+    result = result.replace('.ru', '[.]ru')
+    result = result.replace('.cn', '[.]cn')
+    result = result.replace('.jp', '[.]jp')
+    result = result.replace('.au', '[.]au')
+    result = result.replace('.ca', '[.]ca')
+    result = result.replace('.info', '[.]info')
+    result = result.replace('.biz', '[.]biz')
+    result = result.replace('.tv', '[.]tv')
+    result = result.replace('.cc', '[.]cc')
+    
+    return result
 
 def safe_extract_urls_from_headers(msg_obj):
     """Safely extract URLs from email headers with error handling."""
@@ -313,7 +366,7 @@ def safe_get_user_input(prompt):
         return "n"
 
 def analyze_urls(msg_obj, api_key):
-    """Analyze URLs from email headers with domain-based grouping and smart summary."""
+    """Analyze URLs from email headers with domain-based grouping and working defanging."""
     try:
         # Import the global variable from main module
         try:
@@ -390,8 +443,7 @@ def analyze_urls(msg_obj, api_key):
             except Exception:
                 pass
 
-        # Display results using the reordered format: Malicious -> Unchecked -> Benign
-        # KEY FIX: Use builtin_print for ALL URL content to completely avoid Rich markup
+        # Display results with WORKING defanging
         try:
             # Group results by verdict
             malicious_domains = [r for r in results if r['verdict'] == 'malicious']
@@ -416,11 +468,10 @@ def analyze_urls(msg_obj, api_key):
                     comment = result['comment']
                     representative_url = result['representative_url']
                     
-                    # Apply defanging to domain and URL
-                    display_domain = defanger.defang_text(domain) if defanger.should_defang() else domain
-                    display_url = defanger.defang_text(representative_url) if defanger.should_defang() else representative_url
+                    # Apply working defanging
+                    display_domain = simple_defang(domain)
+                    display_url = simple_defang(representative_url) if representative_url else ""
                     
-                    # Use builtin_print to completely avoid Rich markup interpretation
                     builtin_print(f"• {display_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {comment}")
                     if representative_url:
                         builtin_print(f"  Sample: {display_url}")
@@ -437,11 +488,10 @@ def analyze_urls(msg_obj, api_key):
                     comment = result['comment']
                     representative_url = result['representative_url']
                     
-                    # Apply defanging to domain and URL
-                    display_domain = defanger.defang_text(domain) if defanger.should_defang() else domain
-                    display_url = defanger.defang_text(representative_url) if defanger.should_defang() else representative_url
+                    # Apply working defanging
+                    display_domain = simple_defang(domain)
+                    display_url = simple_defang(representative_url) if representative_url else ""
                     
-                    # Use builtin_print to completely avoid Rich markup interpretation
                     builtin_print(f"• {display_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {comment}")
                     if representative_url:
                         builtin_print(f"  Sample: {display_url}")
@@ -464,10 +514,9 @@ def analyze_urls(msg_obj, api_key):
                         url_count = result['url_count']
                         comment = result['comment']
                         
-                        # Apply defanging to domain
-                        display_domain = defanger.defang_text(domain) if defanger.should_defang() else domain
+                        # Apply working defanging
+                        display_domain = simple_defang(domain)
                         
-                        # Use builtin_print
                         builtin_print(f"• {display_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {comment}")
                 
                 # Group malformed URLs together
@@ -490,7 +539,7 @@ def analyze_urls(msg_obj, api_key):
                     for i in range(sample_count):
                         url = normal_unchecked[i]['representative_url']
                         if url:
-                            display_url = defanger.defang_text(url) if defanger.should_defang() else url
+                            display_url = simple_defang(url)
                             sample_urls.append(display_url)
                     
                     # If we need more samples and have malformed URLs
@@ -499,7 +548,7 @@ def analyze_urls(msg_obj, api_key):
                         for i in range(min(remaining_samples, len(malformed_domains))):
                             url = malformed_domains[i]['representative_url']
                             if url:
-                                display_url = defanger.defang_text(url) if defanger.should_defang() else url
+                                display_url = simple_defang(url)
                                 sample_urls.append(display_url)
                     
                     if sample_urls:
@@ -519,7 +568,7 @@ def analyze_urls(msg_obj, api_key):
                     for i in range(sample_count):
                         url = normal_unchecked[i]['representative_url']
                         if url:
-                            display_url = defanger.defang_text(url) if defanger.should_defang() else url
+                            display_url = simple_defang(url)
                             sample_urls.append(display_url)
                     
                     if sample_urls:
@@ -539,10 +588,9 @@ def analyze_urls(msg_obj, api_key):
                     url_count = result['url_count']
                     comment = result['comment']
                     
-                    # Apply defanging to domain
-                    display_domain = defanger.defang_text(domain) if defanger.should_defang() else domain
+                    # Apply working defanging
+                    display_domain = simple_defang(domain)
                     
-                    # Use builtin_print
                     builtin_print(f"• {display_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {comment}")
                 builtin_print()
             

@@ -191,21 +191,57 @@ def defang_text(text, defang_urls=True, defang_ips=True):
 def should_defang():
     """
     Check if defanging is enabled based on global output mode.
+    Enhanced version with better debugging and mode detection.
     """
     try:
         import sys
         
+        # Debug: Print all available modules
+        # print(f"DEBUG: Available modules: {list(sys.modules.keys())}")
+        
         # Check both 'phishalyzer' and '__main__' module names
         for module_name in ['phishalyzer', '__main__']:
             if module_name in sys.modules:
-                phishalyzer_module = sys.modules[module_name]
-                output_mode = getattr(phishalyzer_module, 'output_mode', None)
-                if output_mode == 'defanged':
-                    return True
-    except (ImportError, AttributeError):
+                try:
+                    phishalyzer_module = sys.modules[module_name]
+                    output_mode = getattr(phishalyzer_module, 'output_mode', None)
+                    # print(f"DEBUG: Module {module_name} has output_mode = {output_mode}")
+                    if output_mode == 'defanged':
+                        return True
+                except AttributeError:
+                    # print(f"DEBUG: Module {module_name} has no output_mode attribute")
+                    continue
+    except (ImportError, AttributeError) as e:
+        # print(f"DEBUG: Error in should_defang: {e}")
         pass
     
+    # print("DEBUG: should_defang returning False")
     return False
+
+def debug_defang_mode():
+    """Debug function to check defanging mode detection."""
+    import sys
+    
+    print("=== DEFANG MODE DEBUG ===")
+    print(f"should_defang() result: {should_defang()}")
+    
+    for module_name in ['phishalyzer', '__main__']:
+        if module_name in sys.modules:
+            try:
+                phishalyzer_module = sys.modules[module_name]
+                output_mode = getattr(phishalyzer_module, 'output_mode', None)
+                print(f"Module '{module_name}': output_mode = {output_mode}")
+            except AttributeError:
+                print(f"Module '{module_name}': No output_mode attribute")
+        else:
+            print(f"Module '{module_name}': Not found in sys.modules")
+    
+    # Test defanging
+    test_url = "https://mail123-ripple.net/726f64726967="
+    defanged = defang_text(test_url)
+    print(f"\nTest URL: {test_url}")
+    print(f"Defanged:  {defanged}")
+    print(f"Changed: {'Yes' if defanged != test_url else 'No'}")
 
 if __name__ == "__main__":
     # Simple test when run directly
@@ -214,3 +250,5 @@ if __name__ == "__main__":
     print("IPv4:", defang_ipv4("192.168.1.1"))
     print("IPv6:", defang_ipv6("2001:db8::1"))
     print("Text:", defang_text("Visit https://evil.com or 192.168.1.1"))
+    print()
+    debug_defang_mode()

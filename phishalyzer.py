@@ -19,6 +19,57 @@ output_mode = "fanged"  # default output mode - accessible globally
 # Global variable to store last analysis results
 last_url_analysis_results = None
 
+def simple_defang(text):
+    """Simple defanging function that actually works"""
+    if not text or not isinstance(text, str):
+        return text
+    
+    # Check if defanging is enabled
+    try:
+        if os.path.exists(OUTPUT_MODE_FILE):
+            with open(OUTPUT_MODE_FILE, "r", encoding='utf-8') as f:
+                content = f.read().strip()
+                if content != "defanged":
+                    return text  # Don't defang if not in defanged mode
+        else:
+            return text  # No settings file, don't defang
+    except:
+        return text  # Error reading file, don't defang
+    
+    # Apply defanging
+    result = text
+    
+    # Replace protocols
+    result = result.replace('https://', 'https[:]//') 
+    result = result.replace('http://', 'http[:]//') 
+    result = result.replace('ftp://', 'ftp[:]//') 
+    
+    # Replace common TLDs and domains
+    result = result.replace('.net', '[.]net')
+    result = result.replace('.com', '[.]com')
+    result = result.replace('.org', '[.]org')
+    result = result.replace('.edu', '[.]edu')
+    result = result.replace('.gov', '[.]gov')
+    result = result.replace('.mil', '[.]mil')
+    result = result.replace('.int', '[.]int')
+    result = result.replace('.co.', '[.]co[.]')
+    result = result.replace('.uk', '[.]uk')
+    result = result.replace('.de', '[.]de')
+    result = result.replace('.fr', '[.]fr')
+    result = result.replace('.io', '[.]io')
+    result = result.replace('.me', '[.]me')
+    result = result.replace('.ru', '[.]ru')
+    result = result.replace('.cn', '[.]cn')
+    result = result.replace('.jp', '[.]jp')
+    result = result.replace('.au', '[.]au')
+    result = result.replace('.ca', '[.]ca')
+    result = result.replace('.info', '[.]info')
+    result = result.replace('.biz', '[.]biz')
+    result = result.replace('.tv', '[.]tv')
+    result = result.replace('.cc', '[.]cc')
+    
+    return result
+
 def print_section_header(title: str):
     """Print a standardized section header with consistent formatting."""
     try:
@@ -379,7 +430,7 @@ def handle_output_settings():
         print(f"[red]Error in output settings menu: {e}[/red]")
 
 def view_collapsed_urls():
-    """Display detailed URLs from the last analysis with safe URL handling."""
+    """Display detailed URLs from the last analysis with working defanging."""
     global last_url_analysis_results
     
     if not last_url_analysis_results:
@@ -387,9 +438,11 @@ def view_collapsed_urls():
         return
     
     try:
-        print(f"\n{'='*60}")
-        print("COMPLETE URL BREAKDOWN")
-        print(f"{'='*60}")
+        from builtins import print as builtin_print
+        
+        builtin_print(f"\n{'='*60}")
+        builtin_print("COMPLETE URL BREAKDOWN")
+        builtin_print(f"{'='*60}")
         
         for result in last_url_analysis_results:
             domain = result['domain']
@@ -406,23 +459,23 @@ def view_collapsed_urls():
             else:
                 verdict_color = "[orange3]UNCHECKED[/orange3]"
             
-            display_domain = defanger.defang_text(domain) if defanger.should_defang() else domain
+            # Apply working defanging to domain
+            display_domain = simple_defang(domain)
             
-            # Display domain header with verdict and count - use builtin print for domain to avoid markup
-            from builtins import print as builtin_print
+            # Display domain header with verdict and count
             builtin_print(f"\n{display_domain} - ", end="")
             print(f"{verdict_color}", end="")
             builtin_print(f" ({len(urls)} URL{'s' if len(urls) != 1 else ''}):")
             
             for j, url in enumerate(urls, 1):
-                display_url = defanger.defang_text(url) if defanger.should_defang() else url
-                # Use builtin print for URLs to completely avoid Rich markup interpretation
+                # Apply working defanging to each individual URL
+                display_url = simple_defang(url)
                 builtin_print(f"  {j:2}. {display_url}")
         
-        print(f"\n{'='*60}")
+        builtin_print(f"\n{'='*60}")
         total_urls = sum(len(r['urls']) for r in last_url_analysis_results)
-        print(f"Total: {total_urls} URL{'s' if total_urls != 1 else ''} across {len(last_url_analysis_results)} domain{'s' if len(last_url_analysis_results) != 1 else ''}")
-        print(f"{'='*60}")
+        builtin_print(f"Total: {total_urls} URL{'s' if total_urls != 1 else ''} across {len(last_url_analysis_results)} domain{'s' if len(last_url_analysis_results) != 1 else ''}")
+        builtin_print(f"{'='*60}")
         
         # Simple return prompt
         try:

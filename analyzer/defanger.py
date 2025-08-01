@@ -158,25 +158,15 @@ def defang_text(text, defang_urls=True, defang_ips=True):
     result = text
     
     if defang_urls:
-        # URL patterns - order matters, do more specific patterns first
+        # URL patterns - more conservative to avoid false positives
         url_patterns = [
-            # Full URLs with protocols - use the original working pattern
-            (r'https://[^\s<>"\']+', lambda m: defang_url(m.group(0))),
-            (r'http://[^\s<>"\']+', lambda m: defang_url(m.group(0))),
-            (r'ftp://[^\s<>"\']+', lambda m: defang_url(m.group(0))),
-            (r'ftps://[^\s<>"\']+', lambda m: defang_url(m.group(0))),
-            (r'sftp://[^\s<>"\']+', lambda m: defang_url(m.group(0))),
-            (r'smtp://[^\s<>"\']+', lambda m: defang_url(m.group(0))),
-            (r'smtps://[^\s<>"\']+', lambda m: defang_url(m.group(0))),
-            (r'ldap://[^\s<>"\']+', lambda m: defang_url(m.group(0))),
-            (r'ldaps://[^\s<>"\']+', lambda m: defang_url(m.group(0))),
-            (r'file://[^\s<>"\']+', lambda m: defang_url(m.group(0))),
-            (r'ssh://[^\s<>"\']+', lambda m: defang_url(m.group(0))),
-            (r'tel:[^\s<>"\']+', lambda m: defang_url(m.group(0))),
-            (r'mailto:[^\s<>"\']+', lambda m: defang_url(m.group(0))),
-            # Email addresses - more specific pattern
+            # Full URLs with protocols - be more specific
+            (r'https://[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:/[^\s<>"\']*)?', lambda m: defang_url(m.group(0))),
+            (r'http://[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:/[^\s<>"\']*)?', lambda m: defang_url(m.group(0))),
+            (r'ftp://[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:/[^\s<>"\']*)?', lambda m: defang_url(m.group(0))),
+            # Email addresses - be more specific
             (r'\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b', lambda m: defang_url(m.group(0))),
-            # www domains
+            # www domains - be more specific
             (r'\bwww\.[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:/[^\s<>"\']*)?', lambda m: defang_url(m.group(0))),
         ]
         

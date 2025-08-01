@@ -291,9 +291,9 @@ def display_qr_analysis(attachment_index, qr_analysis):
             verdict = qr['verdict']
             comment = qr['comment']
             
-            # QR code URL line
+            # QR code URL line with "Destination:"
             display_url = defanger.defang_url(url) if defanger.should_defang() else url
-            qr_url_text = Text(f"    QR {i} (Page {qr['page']}): ")
+            qr_url_text = Text(f"    QR {i} (Page {qr['page']}) Destination: ")
             qr_url_text.append(display_url, style="yellow")
             print(qr_url_text)
             
@@ -312,7 +312,7 @@ def display_qr_analysis(attachment_index, qr_analysis):
             print(verdict_text)
         else:
             # Non-URL QR code
-            non_url_text = Text(f"    QR {i} (Page {qr['page']}): {qr['data']}")
+            non_url_text = Text(f"    QR {i} (Page {qr['page']}) Data: {qr['data']}")
             print(non_url_text)
             
             type_text = Text(f"    Type: {qr['type']}")

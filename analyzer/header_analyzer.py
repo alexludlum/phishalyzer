@@ -51,203 +51,360 @@ WARNING_TERMS = {
     "neutral", "policy", "none", "unknown"
 }
 
+def safe_get_header(headers, key, default=""):
+    """Safely get header value with error handling."""
+    try:
+        value = headers.get(key, default)
+        if value is None:
+            return default
+        # Handle cases where header value might not be a string
+        return str(value) if value else default
+    except Exception:
+        return default
+
+def safe_regex_search(pattern, text, default=None):
+    """Safely perform regex search with error handling."""
+    try:
+        if not text or not isinstance(text, str):
+            return default
+        match = pattern.search(text)
+        return match if match else default
+    except Exception:
+        return default
+
+def safe_regex_finditer(pattern, text):
+    """Safely perform regex finditer with error handling."""
+    try:
+        if not text or not isinstance(text, str):
+            return []
+        return list(pattern.finditer(text))
+    except Exception:
+        return []
+
 def analyze_headers(msg_obj: Message):
-    headers = dict(msg_obj.items())
+    """Analyze email headers with comprehensive error handling."""
+    
+    try:
+        if not msg_obj:
+            print(Text("Error: No email message object provided", style="red"))
+            return
+        
+        # Safely extract headers
+        try:
+            headers = dict(msg_obj.items()) if hasattr(msg_obj, 'items') else {}
+        except Exception as e:
+            print(f"[red]Error extracting headers: {e}[/red]")
+            print("[yellow]Attempting basic header analysis...[/yellow]")
+            headers = {}
 
-    def create_defanged_text(text_content, color_style=None):
-        """Create a Text object with defanged content if defanging is enabled."""
-        if defanger.should_defang():
-            defanged_content = defanger.defang_text(text_content)
-            return Text(defanged_content, style=color_style)
-        else:
-            return Text(text_content, style=color_style)
+        def create_defanged_text(text_content, color_style=None):
+            """Create a Text object with defanged content if defanging is enabled."""
+            try:
+                if defanger.should_defang():
+                    defanged_content = defanger.defang_text(str(text_content))
+                    return Text(defanged_content, style=color_style)
+                else:
+                    return Text(str(text_content), style=color_style)
+            except Exception:
+                return Text(str(text_content), style=color_style)
 
-    def color_key(key: str) -> Text:
-        return Text(key + ":", style="blue")
+        def color_key(key: str) -> Text:
+            try:
+                return Text(str(key) + ":", style="blue")
+            except Exception:
+                return Text("Unknown:", style="blue")
 
-    def highlight_ips_only(text: str) -> Text:
-        """Highlight only IP addresses, not timestamps (for basic headers)."""
-        t = Text(text)
-        for match in IP_PATTERN.finditer(text):
-            t.stylize("yellow", match.start(), match.end())
-        return t
+        def highlight_ips_only(text: str) -> Text:
+            """Highlight only IP addresses, not timestamps (for basic headers)."""
+            try:
+                if not isinstance(text, str):
+                    text = str(text)
+                t = Text(text)
+                matches = safe_regex_finditer(IP_PATTERN, text)
+                for match in matches:
+                    t.stylize("yellow", match.start(), match.end())
+                return t
+            except Exception:
+                return Text(str(text))
 
-    def highlight_ips_and_dates_in_hops(text: str) -> Text:
-        """Highlight IPs and timestamps specifically for Received hops."""
-        t = Text(text)
-        
-        # Track all matches to avoid overlapping
-        matches = []
-        
-        # Find IP addresses
-        for match in IP_PATTERN.finditer(text):
-            matches.append((match.start(), match.end(), "yellow"))
-        
-        # Find dates/timestamps using patterns designed for Received hops
-        for pattern in RECEIVED_DATE_PATTERNS:
-            for match in pattern.finditer(text):
-                # Check if this overlaps with existing matches
-                overlaps = any(
-                    not (match.end() <= start or match.start() >= end)
-                    for start, end, _ in matches
-                )
-                if not overlaps:
-                    matches.append((match.start(), match.end(), "blue"))
-        
-        # Sort matches by start position (reversed for proper application)
-        matches.sort(key=lambda x: x[0], reverse=True)
-        
-        # Apply styling
-        for start, end, color in matches:
-            t.stylize(color, start, end)
-        
-        return t
+        def highlight_ips_and_dates_in_hops(text: str) -> Text:
+            """Highlight IPs and timestamps specifically for Received hops."""
+            try:
+                if not isinstance(text, str):
+                    text = str(text)
+                t = Text(text)
+                
+                # Track all matches to avoid overlapping
+                matches = []
+                
+                # Find IP addresses
+                ip_matches = safe_regex_finditer(IP_PATTERN, text)
+                for match in ip_matches:
+                    matches.append((match.start(), match.end(), "yellow"))
+                
+                # Find dates/timestamps using patterns designed for Received hops
+                for pattern in RECEIVED_DATE_PATTERNS:
+                    try:
+                        date_matches = safe_regex_finditer(pattern, text)
+                        for match in date_matches:
+                            # Check if this overlaps with existing matches
+                            overlaps = any(
+                                not (match.end() <= start or match.start() >= end)
+                                for start, end, _ in matches
+                            )
+                            if not overlaps:
+                                matches.append((match.start(), match.end(), "blue"))
+                    except Exception:
+                        continue
+                
+                # Sort matches by start position (reversed for proper application)
+                matches.sort(key=lambda x: x[0], reverse=True)
+                
+                # Apply styling
+                for start, end, color in matches:
+                    try:
+                        t.stylize(color, start, end)
+                    except Exception:
+                        continue
+                
+                return t
+            except Exception:
+                return Text(str(text))
 
-    def color_auth_word(word: str) -> Text:
-        lw = word.lower()
-        if lw in FAILURE_TERMS:
-            return Text(word.upper(), style="red")
-        elif lw in PASS_TERMS:
-            return Text(word, style="green")
-        elif lw in WARNING_TERMS:
-            return Text(word, style="orange3")
-        else:
-            return Text(word)
+        def color_auth_word(word: str) -> Text:
+            try:
+                lw = str(word).lower()
+                if lw in FAILURE_TERMS:
+                    return Text(str(word).upper(), style="red")
+                elif lw in PASS_TERMS:
+                    return Text(str(word), style="green")
+                elif lw in WARNING_TERMS:
+                    return Text(str(word), style="orange3")
+                else:
+                    return Text(str(word))
+            except Exception:
+                return Text(str(word))
 
-    def color_authentication_results(value: str) -> Text:
-        tokens = re.split(r'(\s+|;)', value)
-        colored_tokens = []
-        
-        for token in tokens:
-            if '=' in token:
-                mech, sep, status = token.partition('=')
-                colored_tokens.append(Text(mech + sep))
-                colored_tokens.append(color_auth_word(status))
+        def color_authentication_results(value: str) -> Text:
+            try:
+                if not isinstance(value, str):
+                    value = str(value)
+                
+                tokens = re.split(r'(\s+|;)', value)
+                colored_tokens = []
+                
+                for token in tokens:
+                    try:
+                        if '=' in token:
+                            mech, sep, status = token.partition('=')
+                            colored_tokens.append(Text(mech + sep))
+                            colored_tokens.append(color_auth_word(status))
+                        else:
+                            colored_tokens.append(Text(token))
+                    except Exception:
+                        colored_tokens.append(Text(str(token)))
+
+                result = Text()
+                for t in colored_tokens:
+                    try:
+                        result.append(t)
+                    except Exception:
+                        continue
+
+                # Apply IP highlighting only (no timestamps in auth results)
+                try:
+                    plain = result.plain
+                    ip_matches = safe_regex_finditer(IP_PATTERN, plain)
+                    for match in ip_matches:
+                        result.stylize("yellow", match.start(), match.end())
+                except Exception:
+                    pass
+
+                return result
+            except Exception:
+                return Text(str(value))
+
+        def color_value(key: str, val: str) -> Text:
+            try:
+                if not isinstance(val, str):
+                    val = str(val)
+                
+                if key == "Authentication-Results":
+                    return color_authentication_results(val)
+                else:
+                    # Apply defanging if enabled, then apply highlighting
+                    try:
+                        display_text = defanger.defang_text(val) if defanger.should_defang() else val
+                    except Exception:
+                        display_text = val
+                    
+                    # For basic headers, only highlight IPs, not timestamps
+                    t = highlight_ips_only(display_text)
+                    lw = val.lower()
+                    
+                    try:
+                        if any(term in lw for term in FAILURE_TERMS):
+                            return Text(display_text.upper(), style="red")
+                        elif any(term in lw for term in PASS_TERMS):
+                            return Text(display_text, style="green")
+                        elif any(term in lw for term in WARNING_TERMS):
+                            return Text(display_text, style="orange3")
+                    except Exception:
+                        pass
+                    
+                    return t
+            except Exception:
+                return Text(str(val))
+
+        # Display basic headers
+        try:
+            basics = ["From", "Return-Path", "Reply-To", "Message-ID", "Subject", "Date"]
+            for key in basics:
+                try:
+                    val = safe_get_header(headers, key)
+                    if not val or (isinstance(val, str) and not val.strip()):
+                        print(color_key(key), Text("MISSING", style="red"))
+                    else:
+                        print(color_key(key), color_value(key, val))
+                except Exception as e:
+                    print(color_key(key), Text(f"ERROR: {e}", style="red"))
+        except Exception as e:
+            print(f"[red]Error displaying basic headers: {e}[/red]")
+
+        print()
+
+        # Display authentication results
+        try:
+            auth_results_val = safe_get_header(headers, "Authentication-Results")
+            if auth_results_val:
+                print(color_key("Authentication-Results"), color_value("Authentication-Results", auth_results_val))
             else:
-                colored_tokens.append(Text(token))
+                print(color_key("Authentication-Results"), Text("MISSING", style="red"))
+        except Exception as e:
+            print(color_key("Authentication-Results"), Text(f"ERROR: {e}", style="red"))
 
-        result = Text()
-        for t in colored_tokens:
-            result.append(t)
+        print()
 
-        # Apply IP highlighting only (no timestamps in auth results)
-        plain = result.plain
-        for match in IP_PATTERN.finditer(plain):
-            result.stylize("yellow", match.start(), match.end())
+        # Display Received hops
+        try:
+            print(Text("Received Hops:", style="blue"))
+            try:
+                hops = msg_obj.get_all("Received", []) if hasattr(msg_obj, 'get_all') else []
+                if not hops:
+                    print("  No Received headers found")
+                else:
+                    for i, hop in enumerate(hops, 1):
+                        try:
+                            label = Text(f"[{i}]", style="blue")
+                            hop_text = highlight_ips_and_dates_in_hops(str(hop))
+                            print(label, hop_text)
+                        except Exception as e:
+                            print(f"  [{i}] Error processing hop: {e}")
+            except Exception as e:
+                print(f"  Error extracting Received headers: {e}")
+        except Exception as e:
+            print(f"[red]Error in Received hops analysis: {e}[/red]")
 
-        return result
+        print()
 
-    def color_value(key: str, val: str) -> Text:
-        if key == "Authentication-Results":
-            return color_authentication_results(val)
-        else:
-            # Apply defanging if enabled, then apply highlighting
-            display_text = defanger.defang_text(val) if defanger.should_defang() else val
+        # Security assessment
+        try:
+            concerns = []
+            factors_benign = []
+            factors_warn = []
+            factors_malicious = []
+
+            def get_auth_result(mech: str):
+                try:
+                    auth_res = safe_get_header(headers, "Authentication-Results", "").lower()
+                    m = safe_regex_search(re.compile(rf"{mech}=([a-z]+)"), auth_res)
+                    if m:
+                        return m.group(1)
+                    else:
+                        return None
+                except Exception:
+                    return None
+
+            # Check SPF, DKIM, DMARC
+            for mech in ["spf", "dkim", "dmarc"]:
+                try:
+                    result = get_auth_result(mech)
+                    if not result:
+                        result = "missing"
+                    
+                    if result in FAILURE_TERMS:
+                        concerns.append("red")
+                        factors_malicious.append(f"{mech.upper()}: Failure or missing (value: {result})")
+                    elif result in WARNING_TERMS:
+                        concerns.append("orange")
+                        factors_warn.append(f"{mech.upper()}: Warning or Suspect (value: {result})")
+                    elif result in PASS_TERMS:
+                        concerns.append("green")
+                        factors_benign.append(f"{mech.upper()}: Passed (value: {result})")
+                    else:
+                        concerns.append("orange")
+                        factors_warn.append(f"{mech.upper()}: Ambiguous or unknown result (value: {result})")
+                except Exception as e:
+                    factors_warn.append(f"{mech.upper()}: Error checking result - {e}")
+
+            # Check Reply-To
+            try:
+                reply_to = safe_get_header(headers, "Reply-To")
+                if not reply_to or not reply_to.strip():
+                    factors_warn.append("Reply-To header missing")
+                else:
+                    factors_benign.append("Reply-To header present")
+            except Exception:
+                factors_warn.append("Reply-To header check failed")
+
+            # Check From vs Return-Path
+            try:
+                from_addr = safe_get_header(headers, "From", "").lower()
+                return_path = safe_get_header(headers, "Return-Path", "").lower()
+                if from_addr and return_path and return_path not in from_addr:
+                    factors_warn.append("Return-Path domain does not match the From domain (possible spoofing)")
+            except Exception:
+                factors_warn.append("From/Return-Path comparison failed")
+
+            # Generate verdict
+            try:
+                if all(c == "green" for c in concerns) and not factors_warn and not factors_malicious:
+                    verdict = Text("Security concern unlikely, but verify other factors.", style="green")
+                elif "red" in concerns or factors_malicious:
+                    verdict = Text("Likely security concern. Proceed with caution.", style="red")
+                else:
+                    verdict = Text("Possible security concern detected.", style="orange3")
+            except Exception:
+                verdict = Text("Could not determine security assessment.", style="orange3")
+
+            # Display factors
+            if factors_benign:
+                print("[green]Benign factors:[/green]")
+                for f in factors_benign:
+                    print(f"  • {f}")
+
+            if factors_warn:
+                print("[orange3]Warning factors:[/orange3]")
+                for f in factors_warn:
+                    print(f"  • {f}")
+
+            if factors_malicious:
+                print("[red]Malicious factors:[/red]")
+                for f in factors_malicious:
+                    print(f"  • {f}")
+
+            if not (factors_benign or factors_warn or factors_malicious):
+                print("  None detected.")
+
+            print()
+            print(Text("HEADER ASSESSMENT:", style="blue"), verdict)
+            print()
             
-            # For basic headers, only highlight IPs, not timestamps
-            t = highlight_ips_only(display_text)
-            lw = val.lower()
-            if any(term in lw for term in FAILURE_TERMS):
-                return Text(display_text.upper(), style="red")
-            elif any(term in lw for term in PASS_TERMS):
-                return Text(display_text, style="green")
-            elif any(term in lw for term in WARNING_TERMS):
-                return Text(display_text, style="orange3")
-            return t
+        except Exception as e:
+            print(f"[red]Error in security assessment: {e}[/red]")
+            print()
 
-    basics = ["From", "Return-Path", "Reply-To", "Message-ID", "Subject", "Date"]
-    for key in basics:
-        val = headers.get(key)
-        if val is None or (isinstance(val, str) and not val.strip()):
-            print(color_key(key), Text("MISSING", style="red"))
-        else:
-            print(color_key(key), color_value(key, val))
-
-    print()
-
-    auth_results_val = headers.get("Authentication-Results")
-    if auth_results_val is not None:
-        print(color_key("Authentication-Results"), color_value("Authentication-Results", auth_results_val))
-    else:
-        print(color_key("Authentication-Results"), Text("MISSING", style="red"))
-
-    print()
-
-    print(Text("Received Hops:", style="blue"))
-    hops = msg_obj.get_all("Received", [])
-    for i, hop in enumerate(hops, 1):
-        label = Text(f"[{i}]", style="blue")
-        hop_text = highlight_ips_and_dates_in_hops(hop)  # Only apply timestamp coloring here
-        print(label, hop_text)
-
-    print()
-
-    concerns = []
-    factors_benign = []
-    factors_warn = []
-    factors_malicious = []
-
-    def get_auth_result(mech: str):
-        auth_res = headers.get("Authentication-Results", "").lower()
-        m = re.search(rf"{mech}=([a-z]+)", auth_res)
-        if m:
-            return m.group(1)
-        else:
-            return None
-
-    for mech in ["spf", "dkim", "dmarc"]:
-        result = get_auth_result(mech)
-        if not result:
-            result = "missing"
-        if result in FAILURE_TERMS:
-            concerns.append("red")
-            factors_malicious.append(f"{mech.upper()}: Failure or missing (value: {result})")
-        elif result in WARNING_TERMS:
-            concerns.append("orange")
-            factors_warn.append(f"{mech.upper()}: Warning or Suspect (value: {result})")
-        elif result in PASS_TERMS:
-            concerns.append("green")
-            factors_benign.append(f"{mech.upper()}: Passed (value: {result})")
-        else:
-            concerns.append("orange")
-            factors_warn.append(f"{mech.upper()}: Ambiguous or unknown result (value: {result})")
-
-    reply_to = headers.get("Reply-To")
-    if reply_to is None or not reply_to.strip():
-        factors_warn.append("Reply-To header missing")
-    else:
-        factors_benign.append("Reply-To header present")
-
-    from_addr = headers.get("From", "").lower()
-    return_path = headers.get("Return-Path", "").lower()
-    if from_addr and return_path and return_path not in from_addr:
-        factors_warn.append("Return-Path domain does not match the From domain (possible spoofing)")
-
-    if all(c == "green" for c in concerns) and not factors_warn and not factors_malicious:
-        verdict = Text("Security concern unlikely, but verify other factors.", style="green")
-    elif "red" in concerns or factors_malicious:
-        verdict = Text("Likely security concern. Proceed with caution.", style="red")
-    else:
-        verdict = Text("Possible security concern detected.", style="orange3")
-
-    if factors_benign:
-        print("[green]Benign factors:[/green]")
-        for f in factors_benign:
-            print(f"  • {f}")
-
-    if factors_warn:
-        print("[orange3]Warning factors:[/orange3]")
-        for f in factors_warn:
-            print(f"  • {f}")
-
-    if factors_malicious:
-        print("[red]Malicious factors:[/red]")
-        for f in factors_malicious:
-            print(f"  • {f}")
-
-    if not (factors_benign or factors_warn or factors_malicious):
-        print("  None detected.")
-
-    print()
-    print(Text("HEADER ASSESSMENT:", style="blue"), verdict)
-    print()
+    except Exception as e:
+        print(f"[red]Critical error in header analysis: {e}[/red]")
+        print("[yellow]Header analysis could not be completed.[/yellow]")
+        print()

@@ -2,6 +2,7 @@ import re
 import time
 import requests
 from rich import print
+from rich.markup import escape
 import ipaddress
 from . import defanger
 
@@ -87,20 +88,20 @@ def safe_get_geoip_country(ip):
             if country and country.lower() not in ['undefined', 'none', '']:
                 return country
         elif response.status_code == 429:
-            print(f"[yellow]Rate limited for GeoIP lookup of {ip}[/yellow]")
+            print(f"[yellow]Rate limited for GeoIP lookup of {escape(ip)}[/yellow]")
             return "Rate Limited"
         
     except requests.exceptions.Timeout:
-        print(f"[yellow]Timeout getting country for {ip}[/yellow]")
+        print(f"[yellow]Timeout getting country for {escape(ip)}[/yellow]")
         return "Timeout"
     except requests.exceptions.ConnectionError:
-        print(f"[yellow]Connection error getting country for {ip}[/yellow]")
+        print(f"[yellow]Connection error getting country for {escape(ip)}[/yellow]")
         return "No Connection"
     except requests.exceptions.RequestException as e:
-        print(f"[yellow]Request error for {ip}: {e}[/yellow]")
+        print(f"[yellow]Request error for {escape(ip)}: {e}[/yellow]")
         return "Request Error"
     except Exception as e:
-        print(f"[yellow]Unexpected error getting country for {ip}: {e}[/yellow]")
+        print(f"[yellow]Unexpected error getting country for {escape(ip)}: {e}[/yellow]")
         return "Error"
     
     return "Undefined"
@@ -113,20 +114,20 @@ def safe_virustotal_request(url, headers, ip):
             return response
         except requests.exceptions.Timeout:
             if attempt < MAX_RETRIES - 1:
-                print(f"[yellow]Timeout for {ip}, retrying... (attempt {attempt + 1}/{MAX_RETRIES})[/yellow]")
+                print(f"[yellow]Timeout for {escape(ip)}, retrying... (attempt {attempt + 1}/{MAX_RETRIES})[/yellow]")
                 time.sleep(2)
             else:
-                print(f"[yellow]Final timeout for {ip} after {MAX_RETRIES} attempts[/yellow]")
+                print(f"[yellow]Final timeout for {escape(ip)} after {MAX_RETRIES} attempts[/yellow]")
                 return None
         except requests.exceptions.ConnectionError:
             if attempt < MAX_RETRIES - 1:
-                print(f"[yellow]Connection error for {ip}, retrying... (attempt {attempt + 1}/{MAX_RETRIES})[/yellow]")
+                print(f"[yellow]Connection error for {escape(ip)}, retrying... (attempt {attempt + 1}/{MAX_RETRIES})[/yellow]")
                 time.sleep(2)
             else:
-                print(f"[yellow]Final connection error for {ip} after {MAX_RETRIES} attempts[/yellow]")
+                print(f"[yellow]Final connection error for {escape(ip)} after {MAX_RETRIES} attempts[/yellow]")
                 return None
         except Exception as e:
-            print(f"[red]Unexpected error querying {ip}: {e}[/red]")
+            print(f"[red]Unexpected error querying {escape(ip)}: {e}[/red]")
             return None
     
     return None
@@ -255,7 +256,7 @@ def check_ip_virustotal(ip, api_key, cache):
             cache[ip] = ("unchecked", f"HTTP {response.status_code}")
             
     except Exception as e:
-        print(f"[red]Error querying VirusTotal for IP {ip}: {e}[/red]")
+        print(f"[red]Error querying VirusTotal for IP {escape(ip)}: {e}[/red]")
         cache[ip] = ("unchecked", "Unexpected error during check")
 
     return cache[ip]
@@ -285,7 +286,7 @@ def analyze_ips(msg_obj, api_key):
                 ips_with_data.append((ip, country, verdict, comment))
                 
             except Exception as e:
-                print(f"[red]Error processing IP {ip}: {e}[/red]")
+                print(f"[red]Error processing IP {escape(ip)}: {e}[/red]")
                 ips_with_data.append((ip, "Error", "unchecked", f"Processing error: {e}"))
 
         # Sort results safely
@@ -304,8 +305,11 @@ def analyze_ips(msg_obj, api_key):
         try:
             for ip, country, verdict, comment in ips_with_data:
                 try:
-                    # Apply defanging if enabled
+                    # Apply defanging if enabled, then escape for Rich
                     display_ip = defanger.defang_ip(ip) if defanger.should_defang() else ip
+                    escaped_ip = escape(display_ip)
+                    escaped_country = escape(country)
+                    escaped_comment = escape(comment)
                     
                     if verdict == "malicious":
                         verdict_text = "[red]MALICIOUS[/red]"
@@ -318,10 +322,10 @@ def analyze_ips(msg_obj, api_key):
                     else:
                         verdict_text = "[orange3]UNKNOWN[/orange3]"
 
-                    print(f"IP: [yellow]{display_ip}[/yellow] ({country}) - Verdict: {verdict_text} ({comment})")
+                    print(f"IP: [yellow]{escaped_ip}[/yellow] ({escaped_country}) - Verdict: {verdict_text} ({escaped_comment})")
                     
                 except Exception as e:
-                    print(f"Error displaying result for {ip}: {e}")
+                    print(f"Error displaying result for {escape(ip)}: {e}")
                     
         except Exception as e:
             print(f"[red]Error displaying IP analysis results: {e}[/red]")

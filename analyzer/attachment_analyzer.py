@@ -4,6 +4,7 @@ import hashlib
 import requests
 from rich import print
 from rich.text import Text
+from rich.markup import escape
 import mimetypes
 import base64
 from email.message import EmailMessage
@@ -158,20 +159,20 @@ def safe_virustotal_request(url, headers, file_hash):
             return response
         except requests.exceptions.Timeout:
             if attempt < MAX_RETRIES - 1:
-                print(f"[yellow]Timeout for hash {file_hash[:8]}..., retrying... (attempt {attempt + 1}/{MAX_RETRIES})[/yellow]")
+                print(f"[yellow]Timeout for hash {escape(file_hash[:8])}..., retrying... (attempt {attempt + 1}/{MAX_RETRIES})[/yellow]")
                 time.sleep(2)
             else:
-                print(f"[yellow]Final timeout for hash {file_hash[:8]}... after {MAX_RETRIES} attempts[/yellow]")
+                print(f"[yellow]Final timeout for hash {escape(file_hash[:8])}... after {MAX_RETRIES} attempts[/yellow]")
                 return None
         except requests.exceptions.ConnectionError:
             if attempt < MAX_RETRIES - 1:
-                print(f"[yellow]Connection error for hash {file_hash[:8]}..., retrying... (attempt {attempt + 1}/{MAX_RETRIES})[/yellow]")
+                print(f"[yellow]Connection error for hash {escape(file_hash[:8])}..., retrying... (attempt {attempt + 1}/{MAX_RETRIES})[/yellow]")
                 time.sleep(2)
             else:
-                print(f"[yellow]Final connection error for hash {file_hash[:8]}... after {MAX_RETRIES} attempts[/yellow]")
+                print(f"[yellow]Final connection error for hash {escape(file_hash[:8])}... after {MAX_RETRIES} attempts[/yellow]")
                 return None
         except Exception as e:
-            print(f"[red]Unexpected error querying hash {file_hash[:8]}...: {e}[/red]")
+            print(f"[red]Unexpected error querying hash {escape(file_hash[:8]) if file_hash else 'unknown'}...: {e}[/red]")
             return None
     
     return None
@@ -301,7 +302,7 @@ def check_file_hash_virustotal(file_hash, api_key, cache):
             cache[file_hash] = ("unchecked", f"HTTP {response.status_code}")
     
     except Exception as e:
-        print(f"[red]Error querying VirusTotal for file hash {file_hash[:8] if file_hash else 'unknown'}...: {e}[/red]")
+        print(f"[red]Error querying VirusTotal for file hash {escape(file_hash[:8]) if file_hash else 'unknown'}...: {e}[/red]")
         cache[file_hash] = ("unchecked", "Unexpected error during check")
     
     return cache[file_hash]
@@ -343,10 +344,12 @@ def safe_extract_attachments(msg_obj):
                                         content = content.encode('utf-8', errors='replace')
                                 
                                 if content and len(content) > MAX_ATTACHMENT_SIZE:
-                                    print(f"[yellow]Warning: Attachment {filename or 'unnamed'} is very large ({len(content) // (1024*1024)}MB), truncating for analysis[/yellow]")
+                                    escaped_filename = escape(filename or 'unnamed')
+                                    print(f"[yellow]Warning: Attachment {escaped_filename} is very large ({len(content) // (1024*1024)}MB), truncating for analysis[/yellow]")
                                     content = content[:MAX_ATTACHMENT_SIZE]
                         except Exception as e:
-                            print(f"[yellow]Warning: Could not extract content for {filename or 'unnamed attachment'}: {e}[/yellow]")
+                            escaped_filename = escape(filename or 'unnamed attachment')
+                            print(f"[yellow]Warning: Could not extract content for {escaped_filename}: {e}[/yellow]")
                             content = b""
                         
                         size = len(content) if content else 0
@@ -468,7 +471,8 @@ def analyze_attachments(msg_obj, api_key):
                 
                 # Check for processing errors
                 if 'error' in attachment:
-                    print(f"[yellow]Warning: Attachment {i} had processing errors: {attachment['error']}[/yellow]")
+                    escaped_error = escape(attachment['error'])
+                    print(f"[yellow]Warning: Attachment {i} had processing errors: {escaped_error}[/yellow]")
                 
                 # Calculate file hash
                 file_hash = safe_calculate_file_hash(content)
@@ -484,7 +488,8 @@ def analyze_attachments(msg_obj, api_key):
                     try:
                         vt_verdict, vt_comment = check_file_hash_virustotal(file_hash, api_key, cache)
                     except Exception as e:
-                        print(f"[yellow]Warning: VirusTotal check failed for {filename}: {e}[/yellow]")
+                        escaped_filename = escape(filename)
+                        print(f"[yellow]Warning: VirusTotal check failed for {escaped_filename}: {e}[/yellow]")
                         vt_verdict, vt_comment = ("unchecked", f"VT check error: {e}")
                 
                 # QR Code analysis (run once per attachment)
@@ -503,7 +508,8 @@ def analyze_attachments(msg_obj, api_key):
                             qr_results = qr_analysis.get('qr_results', [])
                             total_qr_count += len(qr_results)
                 except Exception as e:
-                    print(f"[yellow]Warning: QR analysis failed for {filename}: {e}[/yellow]")
+                    escaped_filename = escape(filename)
+                    print(f"[yellow]Warning: QR analysis failed for {escaped_filename}: {e}[/yellow]")
                     qr_analysis = None
                 
                 # Determine final risk level (considering QR codes)
@@ -581,12 +587,14 @@ def analyze_attachments(msg_obj, api_key):
                     
                     # Filename
                     filename_text = Text("  Filename: ")
-                    filename_text.append(str(result.get('filename', 'unknown')), style="yellow")
+                    escaped_filename = escape(str(result.get('filename', 'unknown')))
+                    filename_text.append(escaped_filename, style="yellow")
                     print(filename_text)
                     
                     # Type
                     type_text = Text("  Type: ")
-                    type_text.append(str(result.get('content_type', 'unknown')))
+                    escaped_content_type = escape(str(result.get('content_type', 'unknown')))
+                    type_text.append(escaped_content_type)
                     print(type_text)
                     
                     # Size
@@ -613,7 +621,8 @@ def analyze_attachments(msg_obj, api_key):
                                 display_hash = defanger.defang_text(display_hash)
                         except Exception:
                             pass
-                        hash_text.append(display_hash, style=hash_color)
+                        escaped_hash = escape(display_hash)
+                        hash_text.append(escaped_hash, style=hash_color)
                         print(hash_text)
                     
                     # Risk Level (color-coded consistently)
@@ -622,7 +631,8 @@ def analyze_attachments(msg_obj, api_key):
                     
                     risk_text = Text("  Risk Level: ")
                     risk_text.append(str(result.get('final_risk_level', 'unknown')).upper(), style=risk_color)
-                    risk_text.append(f" ({result.get('final_risk_reason', 'unknown')})")
+                    escaped_risk_reason = escape(result.get('final_risk_reason', 'unknown'))
+                    risk_text.append(f" ({escaped_risk_reason})")
                     print(risk_text)
                     
                     # VirusTotal verdict (color-coded consistently)
@@ -637,7 +647,8 @@ def analyze_attachments(msg_obj, api_key):
                     
                     vt_text = Text("  VirusTotal: ")
                     vt_text.append(str(result.get('vt_verdict', 'unchecked')).upper(), style=vt_color)
-                    vt_text.append(f" ({result.get('vt_comment', 'unknown')})")
+                    escaped_vt_comment = escape(result.get('vt_comment', 'unknown'))
+                    vt_text.append(f" ({escaped_vt_comment})")
                     print(vt_text)
                     
                     # QR Code analysis (if applicable)

@@ -3,6 +3,7 @@ import time
 import requests
 from rich import print
 from rich.text import Text
+from rich.markup import escape
 import base64
 from urllib.parse import urlparse
 from . import defanger
@@ -18,6 +19,10 @@ try:
     import numpy as np
     from PIL import Image
     QR_LIBRARIES_AVAILABLE = True
+    
+    # Suppress OpenCV warnings about QR code ECI support and other verbose output
+    cv2.setLogLevel(0)  # 0 = SILENT, 1 = FATAL, 2 = ERROR, 3 = WARN, 4 = INFO, 5 = DEBUG
+    
 except ImportError:
     QR_LIBRARIES_AVAILABLE = False
 
@@ -176,7 +181,7 @@ def check_url_virustotal_qr(url, api_key, cache):
         else:
             cache[url] = ("unchecked", "URL will need to be investigated manually")
     except Exception as e:
-        print(f"[red]Error querying VirusTotal for QR URL {url}: {e}[/red]")
+        print(f"[red]Error querying VirusTotal for QR URL {escape(url)}: {e}[/red]")
         cache[url] = ("unchecked", "URL will need to be investigated manually")
 
     return cache[url]
@@ -273,9 +278,9 @@ def display_qr_analysis(attachment_index, qr_analysis):
     if qr_analysis.get('error'):
         error_text = Text("  QR Analysis: ")
         if "Missing dependencies" in qr_analysis['error']:
-            error_text.append(qr_analysis['error'], style="orange3")
+            error_text.append(escape(qr_analysis['error']), style="orange3")
         else:
-            error_text.append(qr_analysis['error'])
+            error_text.append(escape(qr_analysis['error']))
         print(error_text)
         return
     
@@ -299,8 +304,9 @@ def display_qr_analysis(attachment_index, qr_analysis):
             
             # QR code URL line with "Destination:"
             display_url = defanger.defang_url(url) if defanger.should_defang() else url
+            escaped_url = escape(display_url)
             qr_url_text = Text(f"    QR {i} (Page {qr['page']}) Destination: ")
-            qr_url_text.append(display_url, style="yellow")
+            qr_url_text.append(escaped_url, style="yellow")
             print(qr_url_text)
             
             # Verdict line with consistent color scheme
@@ -314,12 +320,13 @@ def display_qr_analysis(attachment_index, qr_analysis):
             
             verdict_text = Text("    Verdict: ")
             verdict_text.append(verdict.upper(), style=verdict_color)
-            verdict_text.append(f" ({comment})")
+            verdict_text.append(f" ({escape(comment)})")
             print(verdict_text)
         else:
             # Non-URL QR code
-            non_url_text = Text(f"    QR {i} (Page {qr['page']}) Data: {qr['data']}")
+            escaped_data = escape(qr['data'])
+            non_url_text = Text(f"    QR {i} (Page {qr['page']}) Data: {escaped_data}")
             print(non_url_text)
             
-            type_text = Text(f"    Type: {qr['type']}")
+            type_text = Text(f"    Type: {escape(qr['type'])}")
             print(type_text)

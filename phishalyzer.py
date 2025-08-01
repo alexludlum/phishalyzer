@@ -9,6 +9,7 @@ from analyzer import attachment_analyzer
 from analyzer import defanger
 from rich import print
 from rich.text import Text
+from rich.markup import escape
 
 API_KEY_FILE = os.path.expanduser("~/.phishalyzer_vt_api_key")
 OUTPUT_MODE_FILE = os.path.expanduser("~/.phishalyzer_output_mode")
@@ -42,9 +43,9 @@ def safe_file_read(filepath, default_value=""):
                 content = f.read().strip()
                 return content if content else default_value
     except (PermissionError, IOError, OSError, UnicodeDecodeError) as e:
-        print(f"[yellow]Warning: Could not read {os.path.basename(filepath)}: {e}[/yellow]")
+        print(f"[yellow]Warning: Could not read {escape(os.path.basename(filepath))}: {e}[/yellow]")
     except Exception as e:
-        print(f"[yellow]Unexpected error reading {os.path.basename(filepath)}: {e}[/yellow]")
+        print(f"[yellow]Unexpected error reading {escape(os.path.basename(filepath))}: {e}[/yellow]")
     return default_value
 
 def safe_file_write(filepath, content):
@@ -54,11 +55,11 @@ def safe_file_write(filepath, content):
             f.write(content.strip())
         return True
     except (PermissionError, IOError, OSError) as e:
-        print(f"[red]Error: Could not save to {os.path.basename(filepath)}: {e}[/red]")
+        print(f"[red]Error: Could not save to {escape(os.path.basename(filepath))}: {e}[/red]")
         print("[yellow]Settings will not persist between sessions.[/yellow]")
         return False
     except Exception as e:
-        print(f"[red]Unexpected error saving {os.path.basename(filepath)}: {e}[/red]")
+        print(f"[red]Unexpected error saving {escape(os.path.basename(filepath))}: {e}[/red]")
         return False
 
 def safe_file_delete(filepath):
@@ -70,10 +71,10 @@ def safe_file_delete(filepath):
         else:
             return False
     except (PermissionError, IOError, OSError) as e:
-        print(f"[red]Error: Could not delete {os.path.basename(filepath)}: {e}[/red]")
+        print(f"[red]Error: Could not delete {escape(os.path.basename(filepath))}: {e}[/red]")
         return False
     except Exception as e:
-        print(f"[red]Unexpected error deleting {os.path.basename(filepath)}: {e}[/red]")
+        print(f"[red]Unexpected error deleting {escape(os.path.basename(filepath))}: {e}[/red]")
         return False
 
 def get_saved_output_mode():
@@ -90,7 +91,7 @@ def save_output_mode(mode: str):
     """Save output mode to file with error handling."""
     try:
         if mode not in ['fanged', 'defanged']:
-            print(f"[red]Error: Invalid output mode '{mode}'[/red]")
+            print(f"[red]Error: Invalid output mode '{escape(mode)}'[/red]")
             return False
         return safe_file_write(OUTPUT_MODE_FILE, mode)
     except Exception as e:
@@ -148,7 +149,7 @@ def prompt_api_key_menu():
                         return saved_key
                         
                     if choice == "1":
-                        print(f"[blue]Saved API Key:[/blue] {saved_key}\n")
+                        print(f"[blue]Saved API Key:[/blue] {escape(saved_key)}\n")
                     elif choice == "2":
                         if safe_file_delete(API_KEY_FILE):
                             print(Text("Saved API key deleted.\n", style="red"))
@@ -240,7 +241,7 @@ def run_analysis(file_path, vt_api_key):
         
         # Check if file exists
         if not os.path.exists(file_path):
-            print(Text(f"Error: File '{file_path}' not found.", style="red"))
+            print(Text(f"Error: File '{escape(file_path)}' not found.", style="red"))
             return
         
         # Check file size (warn about large files)
@@ -275,7 +276,8 @@ def run_analysis(file_path, vt_api_key):
         try:
             subject_text = Text("Subject: ")
             subject = msg_obj.get('Subject', 'No Subject') if msg_obj else 'No Subject'
-            subject_text.append(str(subject))
+            # Escape subject to prevent Rich markup interpretation
+            subject_text.append(escape(str(subject)))
             print(subject_text)
             print()
         except Exception as e:
@@ -377,7 +379,7 @@ def handle_output_settings():
         print(f"[red]Error in output settings menu: {e}[/red]")
 
 def view_collapsed_urls():
-    """Display detailed URLs from the last analysis."""
+    """Display detailed URLs from the last analysis with safe URL handling."""
     global last_url_analysis_results
     
     if not last_url_analysis_results:
@@ -406,12 +408,16 @@ def view_collapsed_urls():
             
             display_domain = defanger.defang_text(domain) if defanger.should_defang() else domain
             
-            # Display domain header with verdict and count
-            print(f"\n{display_domain} - {verdict_color} ({len(urls)} URL{'s' if len(urls) != 1 else ''}):")
+            # Display domain header with verdict and count - use builtin print for domain to avoid markup
+            from builtins import print as builtin_print
+            builtin_print(f"\n{display_domain} - ", end="")
+            print(f"{verdict_color}", end="")
+            builtin_print(f" ({len(urls)} URL{'s' if len(urls) != 1 else ''}):")
             
             for j, url in enumerate(urls, 1):
                 display_url = defanger.defang_text(url) if defanger.should_defang() else url
-                print(f"  {j:2}. {display_url}")
+                # Use builtin print for URLs to completely avoid Rich markup interpretation
+                builtin_print(f"  {j:2}. {display_url}")
         
         print(f"\n{'='*60}")
         total_urls = sum(len(r['urls']) for r in last_url_analysis_results)

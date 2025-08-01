@@ -3,6 +3,8 @@ import time
 import requests
 import base64
 from rich import print
+from builtins import print as builtin_print
+from rich.markup import escape
 from urllib.parse import urlparse
 from . import defanger
 from collections import defaultdict
@@ -143,7 +145,7 @@ def safe_url_to_id(url):
         b64 = base64.urlsafe_b64encode(url_bytes).decode().strip("=")
         return b64
     except Exception as e:
-        print(f"[yellow]Error encoding URL {url}: {e}[/yellow]")
+        print(f"[yellow]Error encoding URL {escape(str(url))}: {e}[/yellow]")
         return None
 
 def safe_virustotal_request(url, headers, original_url):
@@ -154,20 +156,20 @@ def safe_virustotal_request(url, headers, original_url):
             return response
         except requests.exceptions.Timeout:
             if attempt < MAX_RETRIES - 1:
-                print(f"[yellow]Timeout for {original_url}, retrying... (attempt {attempt + 1}/{MAX_RETRIES})[/yellow]")
+                print(f"[yellow]Timeout for {escape(str(original_url))}, retrying... (attempt {attempt + 1}/{MAX_RETRIES})[/yellow]")
                 time.sleep(2)
             else:
-                print(f"[yellow]Final timeout for {original_url} after {MAX_RETRIES} attempts[/yellow]")
+                print(f"[yellow]Final timeout for {escape(str(original_url))} after {MAX_RETRIES} attempts[/yellow]")
                 return None
         except requests.exceptions.ConnectionError:
             if attempt < MAX_RETRIES - 1:
-                print(f"[yellow]Connection error for {original_url}, retrying... (attempt {attempt + 1}/{MAX_RETRIES})[/yellow]")
+                print(f"[yellow]Connection error for {escape(str(original_url))}, retrying... (attempt {attempt + 1}/{MAX_RETRIES})[/yellow]")
                 time.sleep(2)
             else:
-                print(f"[yellow]Final connection error for {original_url} after {MAX_RETRIES} attempts[/yellow]")
+                print(f"[yellow]Final connection error for {escape(str(original_url))} after {MAX_RETRIES} attempts[/yellow]")
                 return None
         except Exception as e:
-            print(f"[red]Unexpected error querying {original_url}: {e}[/red]")
+            print(f"[red]Unexpected error querying {escape(str(original_url))}: {e}[/red]")
             return None
     
     return None
@@ -294,7 +296,7 @@ def check_url_virustotal(url, api_key, cache):
             cache[url] = ("unchecked", f"HTTP {response.status_code}")
             
     except Exception as e:
-        print(f"[red]Error querying VirusTotal for URL {url}: {e}[/red]")
+        print(f"[red]Error querying VirusTotal for URL {escape(str(url))}: {e}[/red]")
         cache[url] = ("unchecked", "Unexpected error during check")
 
     return cache[url]
@@ -364,7 +366,7 @@ def analyze_urls(msg_obj, api_key):
                 })
                 
             except Exception as e:
-                print(f"[red]Error processing domain {domain}: {e}[/red]")
+                print(f"[red]Error processing domain {escape(str(domain))}: {e}[/red]")
                 results.append({
                     'domain': domain,
                     'urls': urls,
@@ -388,7 +390,8 @@ def analyze_urls(msg_obj, api_key):
             except Exception:
                 pass
 
-        # Display results using Option A format
+        # Display results using the reordered format: Malicious -> Unchecked -> Benign
+        # KEY FIX: Use builtin_print for ALL URL content to completely avoid Rich markup
         try:
             # Group results by verdict
             malicious_domains = [r for r in results if r['verdict'] == 'malicious']
@@ -399,13 +402,12 @@ def analyze_urls(msg_obj, api_key):
             total_urls = sum(r['url_count'] for r in results)
             total_domains = len(results)
             
-            print(f"Found {total_urls} URL{'s' if total_urls != 1 else ''} across {total_domains} domain{'s' if total_domains != 1 else ''}")
-            print()
+            builtin_print(f"Found {total_urls} URL{'s' if total_urls != 1 else ''} across {total_domains} domain{'s' if total_domains != 1 else ''}")
+            builtin_print()
             
-            # Display MALICIOUS domains
+            # Display MALICIOUS domains (first)
             if malicious_domains:
                 malicious_count = len(malicious_domains)
-                malicious_url_count = sum(r['url_count'] for r in malicious_domains)
                 
                 print(f"[red]MALICIOUS DOMAINS ({malicious_count}):[/red]")
                 for result in malicious_domains:
@@ -418,15 +420,15 @@ def analyze_urls(msg_obj, api_key):
                     display_domain = defanger.defang_text(domain) if defanger.should_defang() else domain
                     display_url = defanger.defang_text(representative_url) if defanger.should_defang() else representative_url
                     
-                    print(f"• {display_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {comment}")
+                    # Use builtin_print to completely avoid Rich markup interpretation
+                    builtin_print(f"• {display_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {comment}")
                     if representative_url:
-                        print(f"  Sample: {display_url}")
-                print()
+                        builtin_print(f"  Sample: {display_url}")
+                builtin_print()
             
-            # Display SUSPICIOUS domains
+            # Display SUSPICIOUS domains (after malicious)
             if suspicious_domains:
                 suspicious_count = len(suspicious_domains)
-                suspicious_url_count = sum(r['url_count'] for r in suspicious_domains)
                 
                 print(f"[orange3]SUSPICIOUS DOMAINS ({suspicious_count}):[/orange3]")
                 for result in suspicious_domains:
@@ -439,32 +441,15 @@ def analyze_urls(msg_obj, api_key):
                     display_domain = defanger.defang_text(domain) if defanger.should_defang() else domain
                     display_url = defanger.defang_text(representative_url) if defanger.should_defang() else representative_url
                     
-                    print(f"• {display_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {comment}")
+                    # Use builtin_print to completely avoid Rich markup interpretation
+                    builtin_print(f"• {display_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {comment}")
                     if representative_url:
-                        print(f"  Sample: {display_url}")
-                print()
+                        builtin_print(f"  Sample: {display_url}")
+                builtin_print()
             
-            # Display BENIGN domains
-            if benign_domains:
-                benign_count = len(benign_domains)
-                benign_url_count = sum(r['url_count'] for r in benign_domains)
-                
-                print(f"[green]BENIGN DOMAINS ({benign_count}):[/green]")
-                for result in benign_domains:
-                    domain = result['domain']
-                    url_count = result['url_count']
-                    comment = result['comment']
-                    
-                    # Apply defanging to domain
-                    display_domain = defanger.defang_text(domain) if defanger.should_defang() else domain
-                    
-                    print(f"• {display_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {comment}")
-                print()
-            
-            # Display UNCHECKED domains (condensed format for many domains)
+            # Display UNCHECKED domains (second, after malicious)
             if unchecked_domains:
                 unchecked_count = len(unchecked_domains)
-                unchecked_url_count = sum(r['url_count'] for r in unchecked_domains)
                 
                 print(f"[orange3]UNCHECKED DOMAINS ({unchecked_count}):[/orange3]")
                 
@@ -479,10 +464,11 @@ def analyze_urls(msg_obj, api_key):
                         url_count = result['url_count']
                         comment = result['comment']
                         
-                        # Apply defanging to domain - ensure no color codes
+                        # Apply defanging to domain
                         display_domain = defanger.defang_text(domain) if defanger.should_defang() else domain
                         
-                        print(f"• {display_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {comment}")
+                        # Use builtin_print
+                        builtin_print(f"• {display_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {comment}")
                 
                 # Group malformed URLs together
                 if malformed_domains:
@@ -492,10 +478,10 @@ def analyze_urls(msg_obj, api_key):
                     if normal_unchecked and len(normal_unchecked) > 3:
                         # Show condensed view for all unchecked
                         total_unchecked_urls = sum(r['url_count'] for r in unchecked_domains)
-                        print(f"• {unchecked_count} domains with {total_unchecked_urls} URL{'s' if total_unchecked_urls != 1 else ''} total - Not found in VirusTotal")
+                        builtin_print(f"• {unchecked_count} domains with {total_unchecked_urls} URL{'s' if total_unchecked_urls != 1 else ''} total - Not found in VirusTotal")
                     else:
                         # Show malformed separately
-                        print(f"• {malformed_count} malformed/truncated domains ({malformed_url_count} URL{'s' if malformed_url_count != 1 else ''}) - Not found in VirusTotal")
+                        builtin_print(f"• {malformed_count} malformed/truncated domains ({malformed_url_count} URL{'s' if malformed_url_count != 1 else ''}) - Not found in VirusTotal")
                     
                     # Show samples from normal domains first, then malformed if needed
                     sample_urls = []
@@ -517,15 +503,15 @@ def analyze_urls(msg_obj, api_key):
                                 sample_urls.append(display_url)
                     
                     if sample_urls:
-                        print(f"  Samples: {', '.join(sample_urls)}")
+                        builtin_print(f"  Samples: {', '.join(sample_urls)}")
                         remaining_domains = unchecked_count - len(sample_urls)
                         if remaining_domains > 0:
-                            print(f"  ... and {remaining_domains} more")
+                            builtin_print(f"  ... and {remaining_domains} more")
                 
                 elif len(normal_unchecked) > 3:
                     # Only normal unchecked domains, too many to show individually
                     total_unchecked_urls = sum(r['url_count'] for r in unchecked_domains)
-                    print(f"• {unchecked_count} domains with {total_unchecked_urls} URL{'s' if total_unchecked_urls != 1 else ''} total - Not found in VirusTotal")
+                    builtin_print(f"• {unchecked_count} domains with {total_unchecked_urls} URL{'s' if total_unchecked_urls != 1 else ''} total - Not found in VirusTotal")
                     
                     # Show first few samples
                     sample_urls = []
@@ -537,17 +523,34 @@ def analyze_urls(msg_obj, api_key):
                             sample_urls.append(display_url)
                     
                     if sample_urls:
-                        print(f"  Samples: {', '.join(sample_urls)}")
+                        builtin_print(f"  Samples: {', '.join(sample_urls)}")
                         if unchecked_count > sample_count:
-                            print(f"  ... and {unchecked_count - sample_count} more")
+                            builtin_print(f"  ... and {unchecked_count - sample_count} more")
                 
-                print()
+                builtin_print()
+            
+            # Display BENIGN domains (last)
+            if benign_domains:
+                benign_count = len(benign_domains)
+                
+                print(f"[green]BENIGN DOMAINS ({benign_count}):[/green]")
+                for result in benign_domains:
+                    domain = result['domain']
+                    url_count = result['url_count']
+                    comment = result['comment']
+                    
+                    # Apply defanging to domain
+                    display_domain = defanger.defang_text(domain) if defanger.should_defang() else domain
+                    
+                    # Use builtin_print
+                    builtin_print(f"• {display_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {comment}")
+                builtin_print()
             
             # Show menu hint if there are domains with multiple URLs or many domains
             domains_with_multiple = [r for r in results if r['url_count'] > 1]
             if domains_with_multiple or total_domains > 5:
                 print("[blue][Use menu option 'View collapsed URL variations' for full breakdown][/blue]")
-                print()
+                builtin_print()
                     
         except Exception as e:
             print(f"[red]Error displaying URL analysis results: {e}[/red]")

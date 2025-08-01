@@ -2,6 +2,7 @@ import re
 from email.message import Message
 from rich import print
 from rich.text import Text
+from rich.markup import escape
 from . import defanger
 
 # Regex to match IPv4 addresses
@@ -102,15 +103,18 @@ def analyze_headers(msg_obj: Message):
             try:
                 if defanger.should_defang():
                     defanged_content = defanger.defang_text(str(text_content))
-                    return Text(defanged_content, style=color_style)
+                    escaped_content = escape(defanged_content)
+                    return Text(escaped_content, style=color_style)
                 else:
-                    return Text(str(text_content), style=color_style)
+                    escaped_content = escape(str(text_content))
+                    return Text(escaped_content, style=color_style)
             except Exception:
-                return Text(str(text_content), style=color_style)
+                escaped_content = escape(str(text_content))
+                return Text(escaped_content, style=color_style)
 
         def color_key(key: str) -> Text:
             try:
-                return Text(str(key) + ":", style="blue")
+                return Text(escape(str(key)) + ":", style="blue")
             except Exception:
                 return Text("Unknown:", style="blue")
 
@@ -119,33 +123,53 @@ def analyze_headers(msg_obj: Message):
             try:
                 if not isinstance(text, str):
                     text = str(text)
-                t = Text(text)
+                
+                # Apply defanging if enabled
+                if defanger.should_defang():
+                    text = defanger.defang_text(text)
+                
+                # Escape the text to prevent Rich markup interpretation
+                escaped_text = escape(text)
+                t = Text(escaped_text)
+                
+                # Find IP addresses in the original (non-escaped) text for highlighting
                 matches = safe_regex_finditer(IP_PATTERN, text)
-                for match in matches:
+                # Since we've escaped the text, we need to find the positions in the escaped version
+                # For simplicity, we'll highlight based on the escaped text pattern
+                escaped_matches = safe_regex_finditer(IP_PATTERN, escaped_text)
+                for match in escaped_matches:
                     t.stylize("yellow", match.start(), match.end())
+                
                 return t
             except Exception:
-                return Text(str(text))
+                return Text(escape(str(text)))
 
         def highlight_ips_and_dates_in_hops(text: str) -> Text:
             """Highlight IPs and timestamps specifically for Received hops."""
             try:
                 if not isinstance(text, str):
                     text = str(text)
-                t = Text(text)
+                
+                # Apply defanging if enabled
+                if defanger.should_defang():
+                    text = defanger.defang_text(text)
+                
+                # Escape the text to prevent Rich markup interpretation
+                escaped_text = escape(text)
+                t = Text(escaped_text)
                 
                 # Track all matches to avoid overlapping
                 matches = []
                 
-                # Find IP addresses
-                ip_matches = safe_regex_finditer(IP_PATTERN, text)
+                # Find IP addresses in escaped text
+                ip_matches = safe_regex_finditer(IP_PATTERN, escaped_text)
                 for match in ip_matches:
                     matches.append((match.start(), match.end(), "yellow"))
                 
                 # Find dates/timestamps using patterns designed for Received hops
                 for pattern in RECEIVED_DATE_PATTERNS:
                     try:
-                        date_matches = safe_regex_finditer(pattern, text)
+                        date_matches = safe_regex_finditer(pattern, escaped_text)
                         for match in date_matches:
                             # Check if this overlaps with existing matches
                             overlaps = any(
@@ -169,21 +193,22 @@ def analyze_headers(msg_obj: Message):
                 
                 return t
             except Exception:
-                return Text(str(text))
+                return Text(escape(str(text)))
 
         def color_auth_word(word: str) -> Text:
             try:
+                escaped_word = escape(str(word))
                 lw = str(word).lower()
                 if lw in FAILURE_TERMS:
-                    return Text(str(word).upper(), style="red")
+                    return Text(escaped_word.upper(), style="red")
                 elif lw in PASS_TERMS:
-                    return Text(str(word), style="green")
+                    return Text(escaped_word, style="green")
                 elif lw in WARNING_TERMS:
-                    return Text(str(word), style="orange3")
+                    return Text(escaped_word, style="orange3")
                 else:
-                    return Text(str(word))
+                    return Text(escaped_word)
             except Exception:
-                return Text(str(word))
+                return Text(escape(str(word)))
 
         def color_authentication_results(value: str) -> Text:
             try:
@@ -197,12 +222,12 @@ def analyze_headers(msg_obj: Message):
                     try:
                         if '=' in token:
                             mech, sep, status = token.partition('=')
-                            colored_tokens.append(Text(mech + sep))
+                            colored_tokens.append(Text(escape(mech + sep)))
                             colored_tokens.append(color_auth_word(status))
                         else:
-                            colored_tokens.append(Text(token))
+                            colored_tokens.append(Text(escape(token)))
                     except Exception:
-                        colored_tokens.append(Text(str(token)))
+                        colored_tokens.append(Text(escape(str(token))))
 
                 result = Text()
                 for t in colored_tokens:
@@ -222,7 +247,7 @@ def analyze_headers(msg_obj: Message):
 
                 return result
             except Exception:
-                return Text(str(value))
+                return Text(escape(str(value)))
 
         def color_value(key: str, val: str) -> Text:
             try:
@@ -232,7 +257,7 @@ def analyze_headers(msg_obj: Message):
                 if key == "Authentication-Results":
                     return color_authentication_results(val)
                 else:
-                    # Apply defanging if enabled, then apply highlighting
+                    # Apply defanging if enabled
                     try:
                         display_text = defanger.defang_text(val) if defanger.should_defang() else val
                     except Exception:
@@ -244,17 +269,17 @@ def analyze_headers(msg_obj: Message):
                     
                     try:
                         if any(term in lw for term in FAILURE_TERMS):
-                            return Text(display_text.upper(), style="red")
+                            return Text(escape(display_text).upper(), style="red")
                         elif any(term in lw for term in PASS_TERMS):
-                            return Text(display_text, style="green")
+                            return Text(escape(display_text), style="green")
                         elif any(term in lw for term in WARNING_TERMS):
-                            return Text(display_text, style="orange3")
+                            return Text(escape(display_text), style="orange3")
                     except Exception:
                         pass
                     
                     return t
             except Exception:
-                return Text(str(val))
+                return Text(escape(str(val)))
 
         # Display basic headers
         try:
@@ -381,17 +406,17 @@ def analyze_headers(msg_obj: Message):
             if factors_benign:
                 print("[green]Benign factors:[/green]")
                 for f in factors_benign:
-                    print(f"  • {f}")
+                    print(f"  • {escape(f)}")
 
             if factors_warn:
                 print("[orange3]Warning factors:[/orange3]")
                 for f in factors_warn:
-                    print(f"  • {f}")
+                    print(f"  • {escape(f)}")
 
             if factors_malicious:
                 print("[red]Malicious factors:[/red]")
                 for f in factors_malicious:
-                    print(f"  • {f}")
+                    print(f"  • {escape(f)}")
 
             if not (factors_benign or factors_warn or factors_malicious):
                 print("  None detected.")

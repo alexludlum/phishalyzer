@@ -5,6 +5,7 @@ import base64
 from rich import print
 from urllib.parse import urlparse
 from . import defanger
+from collections import defaultdict
 
 # Network request timeout settings
 REQUEST_TIMEOUT = 10
@@ -49,6 +50,87 @@ def safe_extract_urls_from_headers(msg_obj):
     except Exception as e:
         print(f"[red]Error in URL extraction: {e}[/red]")
         return []
+
+def extract_domain(url):
+    """Extract domain from URL for grouping with better handling of malformed URLs."""
+    try:
+        if not url or not isinstance(url, str):
+            return "unknown"
+        
+        # Clean up the URL first
+        clean_url = url.strip()
+        
+        # Handle URLs that end with = (likely truncated)
+        if clean_url.endswith('='):
+            # Try to find a reasonable domain boundary
+            # Look for common patterns before the truncation
+            if '//' in clean_url:
+                try:
+                    protocol_part, rest = clean_url.split('//', 1)
+                    domain_part = rest.split('/')[0].split('?')[0].split('#')[0]
+                    
+                    # If domain part ends with =, it's likely truncated
+                    if domain_part.endswith('='):
+                        # Try to find the actual domain before truncation
+                        if '.' in domain_part:
+                            # Keep everything up to the last reasonable domain part
+                            parts = domain_part.split('.')
+                            # Find the last part that looks like a proper TLD
+                            for i in range(len(parts) - 1, -1, -1):
+                                if parts[i] and not parts[i].endswith('='):
+                                    domain_part = '.'.join(parts[:i+1])
+                                    break
+                            else:
+                                # All parts are malformed, use a generic name
+                                return "truncated-urls"
+                        else:
+                            # No dots, likely completely malformed
+                            return "malformed-urls"
+                    
+                    return domain_part.lower()
+                except Exception:
+                    return "malformed-urls"
+        
+        # Handle URLs without protocol
+        if not clean_url.startswith(('http://', 'https://', 'ftp://')):
+            if clean_url.startswith('www.'):
+                clean_url = 'http://' + clean_url
+            else:
+                clean_url = 'http://' + clean_url
+        
+        try:
+            parsed = urlparse(clean_url)
+            domain = parsed.netloc.lower()
+            
+            # Remove www. prefix for grouping
+            if domain.startswith('www.'):
+                domain = domain[4:]
+            
+            # Additional validation - ensure domain looks reasonable
+            if not domain or domain in ['', 'unknown']:
+                return "malformed-urls"
+            
+            # Check for obviously malformed domains
+            if domain.endswith('=') or len(domain) < 2:
+                return "malformed-urls"
+                
+            return domain
+            
+        except Exception:
+            return "malformed-urls"
+            
+    except Exception:
+        return "malformed-urls"
+
+def get_shortest_url_for_domain(urls):
+    """Get the shortest (most representative) URL for a domain."""
+    try:
+        if not urls:
+            return ""
+        # Return the shortest URL as it's often the base/cleanest
+        return min(urls, key=len)
+    except Exception:
+        return urls[0] if urls else ""
 
 def safe_url_to_id(url):
     """Safely convert URL to VirusTotal ID with error handling."""
@@ -178,19 +260,19 @@ def check_url_virustotal(url, api_key, cache):
                 harmless = stats.get("harmless", 0)
 
                 if malicious > 0:
-                    comment = (f"{malicious} vendor flagged this URL as malicious"
+                    comment = (f"{malicious} vendor flagged this domain as malicious"
                                if malicious == 1 else
-                               f"{malicious} vendors flagged this URL as malicious")
+                               f"{malicious} vendors flagged this domain as malicious")
                     cache[url] = ("malicious", comment)
                 elif suspicious > 0:
-                    comment = (f"{suspicious} vendor flagged this URL as suspicious"
+                    comment = (f"{suspicious} vendor flagged this domain as suspicious"
                                if suspicious == 1 else
-                               f"{suspicious} vendors flagged this URL as suspicious")
+                               f"{suspicious} vendors flagged this domain as suspicious")
                     cache[url] = ("suspicious", comment)
                 elif harmless > 0:
-                    comment = (f"{harmless} vendor reported this URL as benign"
+                    comment = (f"{harmless} vendor reported this domain as benign"
                                if harmless == 1 else
-                               f"{harmless} vendors reported this URL as benign")
+                               f"{harmless} vendors reported this domain as benign")
                     cache[url] = ("benign", comment)
                 else:
                     cache[url] = ("unchecked", "No analysis results available")
@@ -217,67 +299,255 @@ def check_url_virustotal(url, api_key, cache):
 
     return cache[url]
 
-def safe_get_domain(url):
-    """Safely extract domain from URL for sorting."""
+def safe_get_user_input(prompt):
+    """Safely get user input with error handling."""
     try:
-        if not url or not isinstance(url, str):
-            return ""
-        
-        parsed = urlparse(url)
-        domain = parsed.netloc.lower() if parsed.netloc else url.lower()
-        return domain
+        response = input(prompt).strip().lower()
+        return response
+    except (KeyboardInterrupt, EOFError):
+        print("\nSkipping...")
+        return "n"
     except Exception:
-        return str(url).lower()
+        return "n"
 
 def analyze_urls(msg_obj, api_key):
-    """Analyze URLs from email headers with comprehensive error handling."""
+    """Analyze URLs from email headers with domain-based grouping and smart summary."""
     try:
+        # Import the global variable from main module
+        try:
+            import sys
+            main_module = sys.modules.get('__main__') or sys.modules.get('phishalyzer')
+            if main_module:
+                global_results = main_module
+            else:
+                global_results = None
+        except Exception:
+            global_results = None
+        
         url_list = safe_extract_urls_from_headers(msg_obj)
         
         if not url_list:
             print("[yellow]No URLs found in this email.[/yellow]")
             print("[yellow]Please verify manually as URLs might be obfuscated or embedded within attachments.[/yellow]\n")
+            if global_results:
+                try:
+                    setattr(global_results, 'last_url_analysis_results', None)
+                except Exception:
+                    pass
             return []
+        
+        # Group URLs by domain
+        domain_groups = defaultdict(list)
+        for url in url_list:
+            domain = extract_domain(url)
+            domain_groups[domain].append(url)
         
         cache = {}
         results = []
 
-        for url in url_list:
+        # Analyze each domain
+        for domain, urls in domain_groups.items():
             try:
-                verdict, comment = check_url_virustotal(url, api_key, cache)
-                results.append((url, verdict, comment))
+                # Get representative URL (shortest one)
+                representative_url = get_shortest_url_for_domain(urls)
+                
+                # Check VirusTotal for the representative URL
+                verdict, comment = check_url_virustotal(representative_url, api_key, cache)
+                
+                results.append({
+                    'domain': domain,
+                    'urls': urls,
+                    'representative_url': representative_url,
+                    'verdict': verdict,
+                    'comment': comment,
+                    'url_count': len(urls)
+                })
                 
             except Exception as e:
-                print(f"[red]Error processing URL {url}: {e}[/red]")
-                results.append((url, "unchecked", f"Processing error: {e}"))
+                print(f"[red]Error processing domain {domain}: {e}[/red]")
+                results.append({
+                    'domain': domain,
+                    'urls': urls,
+                    'representative_url': urls[0] if urls else "",
+                    'verdict': "unchecked",
+                    'comment': f"Processing error: {e}",
+                    'url_count': len(urls)
+                })
 
-        # Sort results safely
+        # Sort results by verdict priority
         try:
             sort_order = {"malicious": 0, "suspicious": 1, "unchecked": 2, "benign": 3}
-            results.sort(key=lambda x: (sort_order.get(x[1], 4), safe_get_domain(x[0])))
+            results.sort(key=lambda x: (sort_order.get(x['verdict'], 4), x['domain']))
         except Exception as e:
             print(f"[yellow]Warning: Could not sort results: {e}[/yellow]")
 
-        # Display results
-        try:
-            for url, verdict, comment in results:
-                try:
-                    # Apply defanging if enabled
-                    display_url = defanger.defang_url(url) if defanger.should_defang() else url
-                    
-                    if verdict == "malicious":
-                        verdict_text = "[red]MALICIOUS[/red]"
-                    elif verdict == "unchecked":
-                        verdict_text = "[orange3]UNCHECKED[/orange3]"
-                    elif verdict == "benign":
-                        verdict_text = "[green]BENIGN[/green]"
-                    else:
-                        verdict_text = "[orange3]UNKNOWN[/orange3]"
+        # Store results globally for later viewing
+        if global_results:
+            try:
+                setattr(global_results, 'last_url_analysis_results', results)
+            except Exception:
+                pass
 
-                    print(f"URL: [yellow]{display_url}[/yellow] - Verdict: {verdict_text} ({comment})")
+        # Display results using Option A format
+        try:
+            # Group results by verdict
+            malicious_domains = [r for r in results if r['verdict'] == 'malicious']
+            suspicious_domains = [r for r in results if r['verdict'] == 'suspicious']
+            benign_domains = [r for r in results if r['verdict'] == 'benign']
+            unchecked_domains = [r for r in results if r['verdict'] == 'unchecked']
+            
+            total_urls = sum(r['url_count'] for r in results)
+            total_domains = len(results)
+            
+            print(f"Found {total_urls} URL{'s' if total_urls != 1 else ''} across {total_domains} domain{'s' if total_domains != 1 else ''}")
+            print()
+            
+            # Display MALICIOUS domains
+            if malicious_domains:
+                malicious_count = len(malicious_domains)
+                malicious_url_count = sum(r['url_count'] for r in malicious_domains)
+                
+                print(f"[red]MALICIOUS DOMAINS ({malicious_count}):[/red]")
+                for result in malicious_domains:
+                    domain = result['domain']
+                    url_count = result['url_count']
+                    comment = result['comment']
+                    representative_url = result['representative_url']
                     
-                except Exception as e:
-                    print(f"Error displaying result for {url}: {e}")
+                    # Apply defanging to domain and URL
+                    display_domain = defanger.defang_text(domain) if defanger.should_defang() else domain
+                    display_url = defanger.defang_text(representative_url) if defanger.should_defang() else representative_url
+                    
+                    print(f"• {display_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {comment}")
+                    if representative_url:
+                        print(f"  Sample: {display_url}")
+                print()
+            
+            # Display SUSPICIOUS domains
+            if suspicious_domains:
+                suspicious_count = len(suspicious_domains)
+                suspicious_url_count = sum(r['url_count'] for r in suspicious_domains)
+                
+                print(f"[orange3]SUSPICIOUS DOMAINS ({suspicious_count}):[/orange3]")
+                for result in suspicious_domains:
+                    domain = result['domain']
+                    url_count = result['url_count']
+                    comment = result['comment']
+                    representative_url = result['representative_url']
+                    
+                    # Apply defanging to domain and URL
+                    display_domain = defanger.defang_text(domain) if defanger.should_defang() else domain
+                    display_url = defanger.defang_text(representative_url) if defanger.should_defang() else representative_url
+                    
+                    print(f"• {display_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {comment}")
+                    if representative_url:
+                        print(f"  Sample: {display_url}")
+                print()
+            
+            # Display BENIGN domains
+            if benign_domains:
+                benign_count = len(benign_domains)
+                benign_url_count = sum(r['url_count'] for r in benign_domains)
+                
+                print(f"[green]BENIGN DOMAINS ({benign_count}):[/green]")
+                for result in benign_domains:
+                    domain = result['domain']
+                    url_count = result['url_count']
+                    comment = result['comment']
+                    
+                    # Apply defanging to domain
+                    display_domain = defanger.defang_text(domain) if defanger.should_defang() else domain
+                    
+                    print(f"• {display_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {comment}")
+                print()
+            
+            # Display UNCHECKED domains (condensed format for many domains)
+            if unchecked_domains:
+                unchecked_count = len(unchecked_domains)
+                unchecked_url_count = sum(r['url_count'] for r in unchecked_domains)
+                
+                print(f"[orange3]UNCHECKED DOMAINS ({unchecked_count}):[/orange3]")
+                
+                # Group malformed/truncated URLs together
+                malformed_domains = [r for r in unchecked_domains if r['domain'] in ['malformed-urls', 'truncated-urls', 'unknown']]
+                normal_unchecked = [r for r in unchecked_domains if r['domain'] not in ['malformed-urls', 'truncated-urls', 'unknown']]
+                
+                # Show normal unchecked domains first
+                if normal_unchecked and len(normal_unchecked) <= 3:
+                    for result in normal_unchecked:
+                        domain = result['domain']
+                        url_count = result['url_count']
+                        comment = result['comment']
+                        
+                        # Apply defanging to domain - ensure no color codes
+                        display_domain = defanger.defang_text(domain) if defanger.should_defang() else domain
+                        
+                        print(f"• {display_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {comment}")
+                
+                # Group malformed URLs together
+                if malformed_domains:
+                    malformed_count = len(malformed_domains)
+                    malformed_url_count = sum(r['url_count'] for r in malformed_domains)
+                    
+                    if normal_unchecked and len(normal_unchecked) > 3:
+                        # Show condensed view for all unchecked
+                        total_unchecked_urls = sum(r['url_count'] for r in unchecked_domains)
+                        print(f"• {unchecked_count} domains with {total_unchecked_urls} URL{'s' if total_unchecked_urls != 1 else ''} total - Not found in VirusTotal")
+                    else:
+                        # Show malformed separately
+                        print(f"• {malformed_count} malformed/truncated domains ({malformed_url_count} URL{'s' if malformed_url_count != 1 else ''}) - Not found in VirusTotal")
+                    
+                    # Show samples from normal domains first, then malformed if needed
+                    sample_urls = []
+                    sample_count = min(3, len(normal_unchecked))
+                    
+                    for i in range(sample_count):
+                        url = normal_unchecked[i]['representative_url']
+                        if url:
+                            display_url = defanger.defang_text(url) if defanger.should_defang() else url
+                            sample_urls.append(display_url)
+                    
+                    # If we need more samples and have malformed URLs
+                    if len(sample_urls) < 3 and malformed_domains:
+                        remaining_samples = 3 - len(sample_urls)
+                        for i in range(min(remaining_samples, len(malformed_domains))):
+                            url = malformed_domains[i]['representative_url']
+                            if url:
+                                display_url = defanger.defang_text(url) if defanger.should_defang() else url
+                                sample_urls.append(display_url)
+                    
+                    if sample_urls:
+                        print(f"  Samples: {', '.join(sample_urls)}")
+                        remaining_domains = unchecked_count - len(sample_urls)
+                        if remaining_domains > 0:
+                            print(f"  ... and {remaining_domains} more")
+                
+                elif len(normal_unchecked) > 3:
+                    # Only normal unchecked domains, too many to show individually
+                    total_unchecked_urls = sum(r['url_count'] for r in unchecked_domains)
+                    print(f"• {unchecked_count} domains with {total_unchecked_urls} URL{'s' if total_unchecked_urls != 1 else ''} total - Not found in VirusTotal")
+                    
+                    # Show first few samples
+                    sample_urls = []
+                    sample_count = min(3, len(normal_unchecked))
+                    for i in range(sample_count):
+                        url = normal_unchecked[i]['representative_url']
+                        if url:
+                            display_url = defanger.defang_text(url) if defanger.should_defang() else url
+                            sample_urls.append(display_url)
+                    
+                    if sample_urls:
+                        print(f"  Samples: {', '.join(sample_urls)}")
+                        if unchecked_count > sample_count:
+                            print(f"  ... and {unchecked_count - sample_count} more")
+                
+                print()
+            
+            # Show menu hint if there are domains with multiple URLs or many domains
+            domains_with_multiple = [r for r in results if r['url_count'] > 1]
+            if domains_with_multiple or total_domains > 5:
+                print("[blue][Use menu option 'View collapsed URL variations' for full breakdown][/blue]")
+                print()
                     
         except Exception as e:
             print(f"[red]Error displaying URL analysis results: {e}[/red]")

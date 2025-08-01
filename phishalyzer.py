@@ -15,6 +15,9 @@ OUTPUT_MODE_FILE = os.path.expanduser("~/.phishalyzer_output_mode")
 
 output_mode = "fanged"  # default output mode - accessible globally
 
+# Global variable to store last analysis results
+last_url_analysis_results = None
+
 def print_section_header(title: str):
     """Print a standardized section header with consistent formatting."""
     try:
@@ -225,6 +228,8 @@ def print_current_config(vt_api_key, output_mode):
 
 def run_analysis(file_path, vt_api_key):
     """Run complete email analysis with comprehensive error handling."""
+    global last_url_analysis_results
+    
     try:
         # Validate file path
         if not file_path or not file_path.strip():
@@ -300,7 +305,7 @@ def run_analysis(file_path, vt_api_key):
         # URL analysis
         try:
             print_section_header("URL ANALYSIS")
-            url_extractor.analyze_urls(msg_obj, api_key=vt_api_key)
+            last_url_analysis_results = url_extractor.analyze_urls(msg_obj, api_key=vt_api_key)
             print()
         except Exception as e:
             print(f"[red]Error during URL analysis: {e}[/red]")
@@ -371,9 +376,60 @@ def handle_output_settings():
     except Exception as e:
         print(f"[red]Error in output settings menu: {e}[/red]")
 
+def view_collapsed_urls():
+    """Display detailed URLs from the last analysis."""
+    global last_url_analysis_results
+    
+    if not last_url_analysis_results:
+        print("[yellow]No URL analysis results available. Run an analysis first.[/yellow]")
+        return
+    
+    try:
+        print(f"\n{'='*60}")
+        print("COMPLETE URL BREAKDOWN")
+        print(f"{'='*60}")
+        
+        for result in last_url_analysis_results:
+            domain = result['domain']
+            urls = result['urls']
+            verdict = result['verdict']
+            
+            # Color code the verdict for header
+            if verdict == "malicious":
+                verdict_color = "[red]MALICIOUS[/red]"
+            elif verdict == "suspicious":
+                verdict_color = "[orange3]SUSPICIOUS[/orange3]"
+            elif verdict == "benign":
+                verdict_color = "[green]BENIGN[/green]"
+            else:
+                verdict_color = "[orange3]UNCHECKED[/orange3]"
+            
+            display_domain = defanger.defang_text(domain) if defanger.should_defang() else domain
+            
+            # Display domain header with verdict and count
+            print(f"\n{display_domain} - {verdict_color} ({len(urls)} URL{'s' if len(urls) != 1 else ''}):")
+            
+            for j, url in enumerate(urls, 1):
+                display_url = defanger.defang_text(url) if defanger.should_defang() else url
+                print(f"  {j:2}. {display_url}")
+        
+        print(f"\n{'='*60}")
+        total_urls = sum(len(r['urls']) for r in last_url_analysis_results)
+        print(f"Total: {total_urls} URL{'s' if total_urls != 1 else ''} across {len(last_url_analysis_results)} domain{'s' if len(last_url_analysis_results) != 1 else ''}")
+        print(f"{'='*60}")
+        
+        # Simple return prompt
+        try:
+            safe_input("\nPress Enter to return to main menu...")
+        except:
+            pass  # User pressed Ctrl+C or similar, just return
+                
+    except Exception as e:
+        print(f"[red]Error displaying URL details: {e}[/red]")
+
 def main():
     """Main application entry point with comprehensive error handling."""
-    global output_mode
+    global output_mode, last_url_analysis_results
     
     try:
         parser_args = argparse.ArgumentParser(description="Phishing Email Analyzer")
@@ -398,11 +454,19 @@ def main():
                 print("1: Start script [ENTER]")
                 print("2: VirusTotal API Settings")
                 print("3: Output Settings")
-                print("4: Exit")
+                
+                # Only show URL details option if we have results
+                if last_url_analysis_results:
+                    print("4: View collapsed URL variations")
+                    print("5: Exit")
+                    max_option = 5
+                else:
+                    print("4: Exit")
+                    max_option = 4
 
                 print_current_config(vt_api_key, output_mode)
 
-                choice = safe_input("Enter option [1-4] (default 1): ", "1")
+                choice = safe_input(f"Enter option [1-{max_option}] (default 1): ", "1")
                 if choice is None:  # User cancelled
                     break
 
@@ -443,10 +507,24 @@ def main():
                         continue
                         
                 elif choice == "4":
+                    if last_url_analysis_results:
+                        # View URL details
+                        try:
+                            view_collapsed_urls()
+                        except Exception as e:
+                            print(f"[red]Error viewing URL details: {e}[/red]")
+                            continue
+                    else:
+                        # Exit
+                        print("Exiting.")
+                        break
+                        
+                elif choice == "5" and last_url_analysis_results:
+                    # Exit (when URL option is available)
                     print("Exiting.")
                     break
                 else:
-                    print("Invalid input. Please enter a number between 1 and 4.")
+                    print("Invalid input. Please enter a valid option number.")
                     
             except Exception as e:
                 print(f"[red]Error in main menu: {e}[/red]")

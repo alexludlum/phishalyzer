@@ -511,7 +511,7 @@ def main():
         # Main application loop
         while True:
             try:
-                print("\nMain Menu:")
+                print("\n[magenta]===== MAIN MENU =====[/magenta]")
                 print("1: Start script [ENTER]")
                 print("2: VirusTotal API Settings")
                 print("3: Output Settings")
@@ -525,7 +525,28 @@ def main():
                     print("4: Exit")
                     max_option = 4
 
-                print_current_config(vt_api_key, output_mode)
+                # Updated configuration display with purple brackets
+                try:
+                    config_text = Text()
+                    config_text.append("[Current configuration]:", style="magenta")
+                    config_text.append(" Running ")
+                    
+                    if vt_api_key:
+                        config_text.append("with API key", style="blue")
+                    else:
+                        config_text.append("without API key", style="red")
+                    
+                    config_text.append(" and ")
+                    
+                    if output_mode == "fanged":
+                        config_text.append("fanged", style="red")
+                    else:
+                        config_text.append("defanged", style="green")
+                    
+                    config_text.append(" output format.\n")
+                    print(config_text)
+                except Exception as e:
+                    print(f"[magenta][Current configuration]:[/magenta] API key {'set' if vt_api_key else 'not set'}, {output_mode} mode\n")
 
                 choice = safe_input(f"Enter option [1-{max_option}] (default 1): ", "1")
                 if choice is None:  # User cancelled

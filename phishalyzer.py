@@ -71,7 +71,7 @@ def simple_defang(text):
     return result
 
 def print_section_header(title: str):
-    """Print a standardized section header with consistent formatting."""
+    """Print a standardized section header with consistent formatting and pink color."""
     try:
         # Calculate padding to make all headers the same width (50 characters total)
         total_width = 50
@@ -81,10 +81,13 @@ def print_section_header(title: str):
         right_padding = padding_needed - left_padding
         
         header_line = "=" * left_padding + title_with_spaces + "=" * right_padding
-        print(f"\n\n[bright_magenta]{header_line}[/bright_magenta]")
+        
+        # Two empty lines before, then pink header
+        print("\n")
+        print(f"[magenta]{header_line}[/magenta]\n")
     except Exception as e:
         # Fallback to simple header if formatting fails
-        print(f"\n\n[bright_magenta]=== {title.upper()} ===[/bright_magenta]")
+        print(f"\n\n[magenta]=== {title.upper()} ===[/magenta]\n")
 
 def safe_file_read(filepath, default_value=""):
     """Safely read a file with error handling."""
@@ -197,6 +200,10 @@ def prompt_api_key_menu():
                     
                     choice = safe_input("Enter option [1-4]: ")
                     if choice is None:  # User cancelled
+                        return saved_key
+                    
+                    if choice == "" or choice == "4":
+                        # Return to main menu (ENTER or option 4)
                         return saved_key
                         
                     if choice == "1":
@@ -338,34 +345,36 @@ def run_analysis(file_path, vt_api_key):
         # Header analysis
         try:
             print_section_header("EMAIL HEADER ANALYSIS")
-            print()
             header_analyzer.analyze_headers(msg_obj)
+            print()
         except Exception as e:
             print(f"[red]Error during header analysis: {e}[/red]")
             print("[yellow]Skipping header analysis and continuing...[/yellow]")
+            print()
 
         # IP analysis
         try:
             print_section_header("IP ADDRESS ANALYSIS")
-            print()
             ioc_extractor.analyze_ips(msg_obj, api_key=vt_api_key)
+            print()
         except Exception as e:
             print(f"[red]Error during IP analysis: {e}[/red]")
             print("[yellow]Skipping IP analysis and continuing...[/yellow]")
+            print()
 
         # URL analysis
         try:
             print_section_header("URL ANALYSIS")
-            print()
             last_url_analysis_results = url_extractor.analyze_urls(msg_obj, api_key=vt_api_key)
+            print()
         except Exception as e:
             print(f"[red]Error during URL analysis: {e}[/red]")
             print("[yellow]Skipping URL analysis and continuing...[/yellow]")
+            print()
 
         # Attachment analysis
         try:
             print_section_header("ATTACHMENT ANALYSIS")
-            print()
             attachment_analyzer.analyze_attachments(msg_obj, api_key=vt_api_key)
         except Exception as e:
             print(f"[red]Error during attachment analysis: {e}[/red]")
@@ -438,7 +447,7 @@ def view_collapsed_urls():
     try:
         from builtins import print as builtin_print
         
-        # Use the same header style as other sections
+        # Use the same formatting function as other sections
         print_section_header("COMPLETE URL BREAKDOWN")
         
         for result in last_url_analysis_results:
@@ -469,9 +478,9 @@ def view_collapsed_urls():
                 display_url = simple_defang(url)
                 builtin_print(f"  {j:2}. {display_url}")
         
-        # Print footer with bold blue text (no pink border)
+        # Summary
         total_urls = sum(len(r['urls']) for r in last_url_analysis_results)
-        print(f"\n[bold blue]Total: {total_urls} URL{'s' if total_urls != 1 else ''} across {len(last_url_analysis_results)} domain{'s' if len(last_url_analysis_results) != 1 else ''}[/bold blue]")
+        builtin_print(f"\nTotal: {total_urls} URL{'s' if total_urls != 1 else ''} across {len(last_url_analysis_results)} domain{'s' if len(last_url_analysis_results) != 1 else ''}")
         
         # Simple return prompt
         try:

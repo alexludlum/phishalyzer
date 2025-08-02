@@ -512,17 +512,17 @@ def main():
         while True:
             try:
                 print("\n[magenta]===== MAIN MENU =====[/magenta]")
-                print("1: Start script [ENTER]")
-                print("2: VirusTotal API Settings")
-                print("3: Output Settings")
+                print("[blue]1:[/blue] Start script [ENTER]")
+                print("[blue]2:[/blue] VirusTotal API Settings")
+                print("[blue]3:[/blue] Output Settings")
                 
                 # Only show URL details option if we have results
                 if last_url_analysis_results:
-                    print("4: View collapsed URL variations")
-                    print("5: Exit")
+                    print("[blue]4:[/blue] View collapsed URL variations")
+                    print("[blue]5:[/blue] Exit")
                     max_option = 5
                 else:
-                    print("4: Exit")
+                    print("[blue]4:[/blue] Exit")
                     max_option = 4
 
                 # Updated configuration display with purple brackets

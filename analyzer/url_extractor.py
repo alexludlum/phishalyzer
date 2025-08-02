@@ -383,7 +383,7 @@ def analyze_urls(msg_obj, api_key):
         
         if not url_list:
             print("[yellow]No URLs found in this email.[/yellow]")
-            print("[yellow]Please verify manually as URLs might be obfuscated or embedded within attachments.[/yellow]\n")
+            print("[yellow]Please verify manually as URLs might be obfuscated or embedded within attachments.[/yellow]")
             if global_results:
                 try:
                     setattr(global_results, 'last_url_analysis_results', None)
@@ -455,7 +455,6 @@ def analyze_urls(msg_obj, api_key):
             total_domains = len(results)
             
             builtin_print(f"Found {total_urls} URL{'s' if total_urls != 1 else ''} across {total_domains} domain{'s' if total_domains != 1 else ''}")
-            builtin_print()
             
             # Display MALICIOUS domains (first)
             if malicious_domains:
@@ -475,7 +474,6 @@ def analyze_urls(msg_obj, api_key):
                     builtin_print(f"• {display_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {comment}")
                     if representative_url:
                         builtin_print(f"  Sample: {display_url}")
-                builtin_print()
             
             # Display SUSPICIOUS domains (after malicious)
             if suspicious_domains:
@@ -495,7 +493,6 @@ def analyze_urls(msg_obj, api_key):
                     builtin_print(f"• {display_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {comment}")
                     if representative_url:
                         builtin_print(f"  Sample: {display_url}")
-                builtin_print()
             
             # Display UNCHECKED domains (second, after malicious)
             if unchecked_domains:
@@ -575,8 +572,6 @@ def analyze_urls(msg_obj, api_key):
                         builtin_print(f"  Samples: {', '.join(sample_urls)}")
                         if unchecked_count > sample_count:
                             builtin_print(f"  ... and {unchecked_count - sample_count} more")
-                
-                builtin_print()
             
             # Display BENIGN domains (last)
             if benign_domains:
@@ -592,13 +587,11 @@ def analyze_urls(msg_obj, api_key):
                     display_domain = simple_defang(domain)
                     
                     builtin_print(f"• {display_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {comment}")
-                builtin_print()
             
             # Show menu hint if there are domains with multiple URLs or many domains
             domains_with_multiple = [r for r in results if r['url_count'] > 1]
             if domains_with_multiple or total_domains > 5:
                 print("[blue][Use menu option 'View collapsed URL variations' for full breakdown][/blue]")
-                builtin_print()
                     
         except Exception as e:
             print(f"[red]Error displaying URL analysis results: {e}[/red]")

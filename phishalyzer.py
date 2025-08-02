@@ -81,10 +81,10 @@ def print_section_header(title: str):
         right_padding = padding_needed - left_padding
         
         header_line = "=" * left_padding + title_with_spaces + "=" * right_padding
-        print(f"\n{header_line}\n")
+        print(f"\n\n[bright_magenta]{header_line}[/bright_magenta]")
     except Exception as e:
         # Fallback to simple header if formatting fails
-        print(f"\n=== {title.upper()} ===\n")
+        print(f"\n\n[bright_magenta]=== {title.upper()} ===[/bright_magenta]")
 
 def safe_file_read(filepath, default_value=""):
     """Safely read a file with error handling."""
@@ -338,36 +338,34 @@ def run_analysis(file_path, vt_api_key):
         # Header analysis
         try:
             print_section_header("EMAIL HEADER ANALYSIS")
-            header_analyzer.analyze_headers(msg_obj)
             print()
+            header_analyzer.analyze_headers(msg_obj)
         except Exception as e:
             print(f"[red]Error during header analysis: {e}[/red]")
             print("[yellow]Skipping header analysis and continuing...[/yellow]")
-            print()
 
         # IP analysis
         try:
             print_section_header("IP ADDRESS ANALYSIS")
-            ioc_extractor.analyze_ips(msg_obj, api_key=vt_api_key)
             print()
+            ioc_extractor.analyze_ips(msg_obj, api_key=vt_api_key)
         except Exception as e:
             print(f"[red]Error during IP analysis: {e}[/red]")
             print("[yellow]Skipping IP analysis and continuing...[/yellow]")
-            print()
 
         # URL analysis
         try:
             print_section_header("URL ANALYSIS")
-            last_url_analysis_results = url_extractor.analyze_urls(msg_obj, api_key=vt_api_key)
             print()
+            last_url_analysis_results = url_extractor.analyze_urls(msg_obj, api_key=vt_api_key)
         except Exception as e:
             print(f"[red]Error during URL analysis: {e}[/red]")
             print("[yellow]Skipping URL analysis and continuing...[/yellow]")
-            print()
 
         # Attachment analysis
         try:
             print_section_header("ATTACHMENT ANALYSIS")
+            print()
             attachment_analyzer.analyze_attachments(msg_obj, api_key=vt_api_key)
         except Exception as e:
             print(f"[red]Error during attachment analysis: {e}[/red]")
@@ -440,9 +438,8 @@ def view_collapsed_urls():
     try:
         from builtins import print as builtin_print
         
-        builtin_print(f"\n{'='*60}")
-        builtin_print("COMPLETE URL BREAKDOWN")
-        builtin_print(f"{'='*60}")
+        # Use the same header style as other sections
+        print_section_header("COMPLETE URL BREAKDOWN")
         
         for result in last_url_analysis_results:
             domain = result['domain']
@@ -463,7 +460,7 @@ def view_collapsed_urls():
             display_domain = simple_defang(domain)
             
             # Display domain header with verdict and count
-            builtin_print(f"\n{display_domain} - ", end="")
+            builtin_print(f"{display_domain} - ", end="")
             print(f"{verdict_color}", end="")
             builtin_print(f" ({len(urls)} URL{'s' if len(urls) != 1 else ''}):")
             
@@ -472,10 +469,9 @@ def view_collapsed_urls():
                 display_url = simple_defang(url)
                 builtin_print(f"  {j:2}. {display_url}")
         
-        builtin_print(f"\n{'='*60}")
+        # Print footer with bold blue text (no pink border)
         total_urls = sum(len(r['urls']) for r in last_url_analysis_results)
-        builtin_print(f"Total: {total_urls} URL{'s' if total_urls != 1 else ''} across {len(last_url_analysis_results)} domain{'s' if len(last_url_analysis_results) != 1 else ''}")
-        builtin_print(f"{'='*60}")
+        print(f"\n[bold blue]Total: {total_urls} URL{'s' if total_urls != 1 else ''} across {len(last_url_analysis_results)} domain{'s' if len(last_url_analysis_results) != 1 else ''}[/bold blue]")
         
         # Simple return prompt
         try:

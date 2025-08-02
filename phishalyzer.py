@@ -82,9 +82,8 @@ def print_section_header(title: str):
         
         header_line = "=" * left_padding + title_with_spaces + "=" * right_padding
         
-        # Two empty lines before, then pink header
-        print("\n")
-        print(f"[magenta]{header_line}[/magenta]\n")
+        # Two spaces before, one space after header
+        print(f"\n\n[magenta]{header_line}[/magenta]\n")
     except Exception as e:
         # Fallback to simple header if formatting fails
         print(f"\n\n[magenta]=== {title.upper()} ===[/magenta]\n")
@@ -346,31 +345,25 @@ def run_analysis(file_path, vt_api_key):
         try:
             print_section_header("EMAIL HEADER ANALYSIS")
             header_analyzer.analyze_headers(msg_obj)
-            print()
         except Exception as e:
             print(f"[red]Error during header analysis: {e}[/red]")
             print("[yellow]Skipping header analysis and continuing...[/yellow]")
-            print()
 
         # IP analysis
         try:
             print_section_header("IP ADDRESS ANALYSIS")
             ioc_extractor.analyze_ips(msg_obj, api_key=vt_api_key)
-            print()
         except Exception as e:
             print(f"[red]Error during IP analysis: {e}[/red]")
             print("[yellow]Skipping IP analysis and continuing...[/yellow]")
-            print()
 
         # URL analysis
         try:
             print_section_header("URL ANALYSIS")
             last_url_analysis_results = url_extractor.analyze_urls(msg_obj, api_key=vt_api_key)
-            print()
         except Exception as e:
             print(f"[red]Error during URL analysis: {e}[/red]")
             print("[yellow]Skipping URL analysis and continuing...[/yellow]")
-            print()
 
         # Attachment analysis
         try:

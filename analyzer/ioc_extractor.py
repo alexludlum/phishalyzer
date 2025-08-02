@@ -267,7 +267,7 @@ def analyze_ips(msg_obj, api_key):
         ip_list = safe_extract_ips_from_headers(msg_obj)
         
         if not ip_list:
-            print("[yellow]No IP addresses found in this email.[/yellow]\n")
+            print("[yellow]No IP addresses found in this email.[/yellow]")
             return []
         
         cache = {}

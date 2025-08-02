@@ -423,13 +423,10 @@ def analyze_headers(msg_obj: Message):
 
             print()
             print(Text("HEADER ASSESSMENT:", style="blue"), verdict)
-            print()
             
         except Exception as e:
             print(f"[red]Error in security assessment: {e}[/red]")
-            print()
 
     except Exception as e:
         print(f"[red]Critical error in header analysis: {e}[/red]")
         print("[yellow]Header analysis could not be completed.[/yellow]")
-        print()

@@ -419,7 +419,7 @@ def handle_output_settings():
                     else:
                         print("Output mode set to [green]Defanged[/green] but could not save setting.")
                     break
-                elif submenu_choice == "3":
+                elif submenu_choice == "3" or submenu_choice == "":  # Added empty string check here
                     break
                 else:
                     print("Invalid input. Please enter 1, 2, or 3.")

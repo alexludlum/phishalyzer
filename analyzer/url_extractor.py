@@ -460,6 +460,7 @@ def analyze_urls(msg_obj, api_key):
             if malicious_domains:
                 malicious_count = len(malicious_domains)
                 
+                builtin_print()  # Space before section
                 print(f"[red]MALICIOUS DOMAINS ({malicious_count}):[/red]")
                 for result in malicious_domains:
                     domain = result['domain']
@@ -479,6 +480,7 @@ def analyze_urls(msg_obj, api_key):
             if suspicious_domains:
                 suspicious_count = len(suspicious_domains)
                 
+                builtin_print()  # Space before section
                 print(f"[orange3]SUSPICIOUS DOMAINS ({suspicious_count}):[/orange3]")
                 for result in suspicious_domains:
                     domain = result['domain']
@@ -498,6 +500,7 @@ def analyze_urls(msg_obj, api_key):
             if unchecked_domains:
                 unchecked_count = len(unchecked_domains)
                 
+                builtin_print()  # Space before section
                 print(f"[orange3]UNCHECKED DOMAINS ({unchecked_count}):[/orange3]")
                 
                 # Group malformed/truncated URLs together
@@ -577,6 +580,7 @@ def analyze_urls(msg_obj, api_key):
             if benign_domains:
                 benign_count = len(benign_domains)
                 
+                builtin_print()  # Space before section
                 print(f"[green]BENIGN DOMAINS ({benign_count}):[/green]")
                 for result in benign_domains:
                     domain = result['domain']
@@ -591,6 +595,7 @@ def analyze_urls(msg_obj, api_key):
             # Show menu hint if there are domains with multiple URLs or many domains
             domains_with_multiple = [r for r in results if r['url_count'] > 1]
             if domains_with_multiple or total_domains > 5:
+                builtin_print()  # Space before menu hint
                 print("[blue][Use menu option 'View collapsed URL variations' for full breakdown][/blue]")
                     
         except Exception as e:

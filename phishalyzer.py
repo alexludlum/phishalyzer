@@ -443,7 +443,11 @@ def view_collapsed_urls():
         # Use the same formatting function as other sections
         print_section_header("COMPLETE URL BREAKDOWN")
         
-        for result in last_url_analysis_results:
+        for i, result in enumerate(last_url_analysis_results):
+            # Add spacing between domains (but not before the first one)
+            if i > 0:
+                builtin_print()
+            
             domain = result['domain']
             urls = result['urls']
             verdict = result['verdict']

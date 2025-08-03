@@ -2,12 +2,17 @@ import re
 import time
 import hashlib
 import requests
-from rich import print
-from rich.text import Text
-from rich.markup import escape
 import mimetypes
 import base64
 from email.message import EmailMessage
+
+# Import compatible output system
+try:
+    from .compatible_output import output, print_status, print_attachment_header, print_filename, print_hash, print_risk_level, print_vt_verdict
+    COMPATIBLE_OUTPUT = True
+except ImportError:
+    COMPATIBLE_OUTPUT = False
+
 from . import qr_analyzer
 from . import defanger
 
@@ -148,7 +153,10 @@ def safe_calculate_file_hash(content):
         
         return hashlib.sha256(content).hexdigest()
     except Exception as e:
-        print(f"[yellow]Warning: Could not calculate file hash: {e}[/yellow]")
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Warning: Could not calculate file hash: {e}", "warning")
+        else:
+            print(f"Warning: Could not calculate file hash: {e}")
         return "N/A"
 
 def safe_virustotal_request(url, headers, file_hash):
@@ -159,20 +167,40 @@ def safe_virustotal_request(url, headers, file_hash):
             return response
         except requests.exceptions.Timeout:
             if attempt < MAX_RETRIES - 1:
-                print(f"[yellow]Timeout for hash {escape(file_hash[:8])}..., retrying... (attempt {attempt + 1}/{MAX_RETRIES})[/yellow]")
+                escaped_hash = output.escape(file_hash[:8]) if COMPATIBLE_OUTPUT else file_hash[:8]
+                if COMPATIBLE_OUTPUT:
+                    print_status(f"Timeout for hash {escaped_hash}..., retrying... (attempt {attempt + 1}/{MAX_RETRIES})", "warning")
+                else:
+                    print(f"Timeout for hash {escaped_hash}..., retrying... (attempt {attempt + 1}/{MAX_RETRIES})")
                 time.sleep(2)
             else:
-                print(f"[yellow]Final timeout for hash {escape(file_hash[:8])}... after {MAX_RETRIES} attempts[/yellow]")
+                escaped_hash = output.escape(file_hash[:8]) if COMPATIBLE_OUTPUT else file_hash[:8]
+                if COMPATIBLE_OUTPUT:
+                    print_status(f"Final timeout for hash {escaped_hash}... after {MAX_RETRIES} attempts", "warning")
+                else:
+                    print(f"Final timeout for hash {escaped_hash}... after {MAX_RETRIES} attempts")
                 return None
         except requests.exceptions.ConnectionError:
             if attempt < MAX_RETRIES - 1:
-                print(f"[yellow]Connection error for hash {escape(file_hash[:8])}..., retrying... (attempt {attempt + 1}/{MAX_RETRIES})[/yellow]")
+                escaped_hash = output.escape(file_hash[:8]) if COMPATIBLE_OUTPUT else file_hash[:8]
+                if COMPATIBLE_OUTPUT:
+                    print_status(f"Connection error for hash {escaped_hash}..., retrying... (attempt {attempt + 1}/{MAX_RETRIES})", "warning")
+                else:
+                    print(f"Connection error for hash {escaped_hash}..., retrying... (attempt {attempt + 1}/{MAX_RETRIES})")
                 time.sleep(2)
             else:
-                print(f"[yellow]Final connection error for hash {escape(file_hash[:8])}... after {MAX_RETRIES} attempts[/yellow]")
+                escaped_hash = output.escape(file_hash[:8]) if COMPATIBLE_OUTPUT else file_hash[:8]
+                if COMPATIBLE_OUTPUT:
+                    print_status(f"Final connection error for hash {escaped_hash}... after {MAX_RETRIES} attempts", "warning")
+                else:
+                    print(f"Final connection error for hash {escaped_hash}... after {MAX_RETRIES} attempts")
                 return None
         except Exception as e:
-            print(f"[red]Unexpected error querying hash {escape(file_hash[:8]) if file_hash else 'unknown'}...: {e}[/red]")
+            escaped_hash = output.escape(file_hash[:8]) if COMPATIBLE_OUTPUT and file_hash else 'unknown'
+            if COMPATIBLE_OUTPUT:
+                print_status(f"Unexpected error querying hash {escaped_hash}...: {e}", "error")
+            else:
+                print(f"Unexpected error querying hash {escaped_hash}...: {e}")
             return None
     
     return None
@@ -182,10 +210,14 @@ def safe_handle_rate_limit():
     try:
         while True:
             try:
-                choice = input(
-                    "[yellow]VirusTotal API rate limit reached.[/yellow]\n"
-                    "Type 'wait' to wait 60 seconds, or 'skip' to proceed without checking: "
-                ).strip().lower()
+                if COMPATIBLE_OUTPUT:
+                    print_status("VirusTotal API rate limit reached.", "warning")
+                    choice = input("Type 'wait' to wait 60 seconds, or 'skip' to proceed without checking: ").strip().lower()
+                else:
+                    choice = input(
+                        "VirusTotal API rate limit reached.\n"
+                        "Type 'wait' to wait 60 seconds, or 'skip' to proceed without checking: "
+                    ).strip().lower()
                 
                 if choice == "wait":
                     print("Waiting 60 seconds...")
@@ -199,7 +231,10 @@ def safe_handle_rate_limit():
                 print("\nSkipping due to user interruption.")
                 return "skip"
             except Exception as e:
-                print(f"[red]Input error: {e}[/red]")
+                if COMPATIBLE_OUTPUT:
+                    print_status(f"Input error: {e}", "error")
+                else:
+                    print(f"Input error: {e}")
                 return "skip"
     except Exception:
         return "skip"
@@ -302,7 +337,11 @@ def check_file_hash_virustotal(file_hash, api_key, cache):
             cache[file_hash] = ("unchecked", f"HTTP {response.status_code}")
     
     except Exception as e:
-        print(f"[red]Error querying VirusTotal for file hash {escape(file_hash[:8]) if file_hash else 'unknown'}...: {e}[/red]")
+        escaped_hash = output.escape(file_hash[:8]) if COMPATIBLE_OUTPUT and file_hash else 'unknown'
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Error querying VirusTotal for file hash {escaped_hash}...: {e}", "error")
+        else:
+            print(f"Error querying VirusTotal for file hash {escaped_hash}...: {e}")
         cache[file_hash] = ("unchecked", "Unexpected error during check")
     
     return cache[file_hash]
@@ -344,12 +383,18 @@ def safe_extract_attachments(msg_obj):
                                         content = content.encode('utf-8', errors='replace')
                                 
                                 if content and len(content) > MAX_ATTACHMENT_SIZE:
-                                    escaped_filename = escape(filename or 'unnamed')
-                                    print(f"[yellow]Warning: Attachment {escaped_filename} is very large ({len(content) // (1024*1024)}MB), truncating for analysis[/yellow]")
+                                    escaped_filename = output.escape(filename or 'unnamed') if COMPATIBLE_OUTPUT else (filename or 'unnamed')
+                                    if COMPATIBLE_OUTPUT:
+                                        print_status(f"Warning: Attachment {escaped_filename} is very large ({len(content) // (1024*1024)}MB), truncating for analysis", "warning")
+                                    else:
+                                        print(f"Warning: Attachment {escaped_filename} is very large ({len(content) // (1024*1024)}MB), truncating for analysis")
                                     content = content[:MAX_ATTACHMENT_SIZE]
                         except Exception as e:
-                            escaped_filename = escape(filename or 'unnamed attachment')
-                            print(f"[yellow]Warning: Could not extract content for {escaped_filename}: {e}[/yellow]")
+                            escaped_filename = output.escape(filename or 'unnamed attachment') if COMPATIBLE_OUTPUT else (filename or 'unnamed attachment')
+                            if COMPATIBLE_OUTPUT:
+                                print_status(f"Warning: Could not extract content for {escaped_filename}: {e}", "warning")
+                            else:
+                                print(f"Warning: Could not extract content for {escaped_filename}: {e}")
                             content = b""
                         
                         size = len(content) if content else 0
@@ -362,7 +407,10 @@ def safe_extract_attachments(msg_obj):
                         })
                         
                     except Exception as e:
-                        print(f"[yellow]Warning: Error processing attachment: {e}[/yellow]")
+                        if COMPATIBLE_OUTPUT:
+                            print_status(f"Warning: Error processing attachment: {e}", "warning")
+                        else:
+                            print(f"Warning: Error processing attachment: {e}")
                         # Add a placeholder for the failed attachment
                         attachments.append({
                             'filename': 'error_processing_attachment',
@@ -373,11 +421,17 @@ def safe_extract_attachments(msg_obj):
                         })
                         
             except Exception as e:
-                print(f"[yellow]Warning: Error processing email part: {e}[/yellow]")
+                if COMPATIBLE_OUTPUT:
+                    print_status(f"Warning: Error processing email part: {e}", "warning")
+                else:
+                    print(f"Warning: Error processing email part: {e}")
                 continue
     
     except Exception as e:
-        print(f"[red]Error extracting attachments: {e}[/red]")
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Error extracting attachments: {e}", "error")
+        else:
+            print(f"Error extracting attachments: {e}")
     
     return attachments
 
@@ -430,7 +484,10 @@ def safe_determine_risk_from_qr(qr_analysis):
             return "high", f"{qr_text} detected"
             
     except Exception as e:
-        print(f"[yellow]Warning: Error analyzing QR risk: {e}[/yellow]")
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Warning: Error analyzing QR risk: {e}", "warning")
+        else:
+            print(f"Warning: Error analyzing QR risk: {e}")
         return None, None
 
 def analyze_attachments(msg_obj, api_key):
@@ -440,20 +497,19 @@ def analyze_attachments(msg_obj, api_key):
         attachments = safe_extract_attachments(msg_obj)
         
         if not attachments:
-            print(Text("No attachments found in this email.", style="green"))
+            if COMPATIBLE_OUTPUT:
+                print_status("No attachments found in this email.", "success")
+            else:
+                print("No attachments found in this email.")
             print()
             return []
         
         # Create properly colored text for attachment count
         try:
-            count_text = Text()
-            count_text.append("Found ")
-            count_text.append(str(len(attachments)), style="blue")
-            count_text.append(" attachment")
-            if len(attachments) != 1:
-                count_text.append("s")
-            count_text.append(":\n")
-            print(count_text)
+            if COMPATIBLE_OUTPUT:
+                output.print(f"Found [blue]{len(attachments)}[/blue] attachment{'s' if len(attachments) != 1 else ''}:\n")
+            else:
+                print(f"Found {len(attachments)} attachment{'s' if len(attachments) != 1 else ''}:\n")
         except Exception:
             print(f"Found {len(attachments)} attachment(s):\n")
         
@@ -471,8 +527,11 @@ def analyze_attachments(msg_obj, api_key):
                 
                 # Check for processing errors
                 if 'error' in attachment:
-                    escaped_error = escape(attachment['error'])
-                    print(f"[yellow]Warning: Attachment {i} had processing errors: {escaped_error}[/yellow]")
+                    escaped_error = output.escape(attachment['error']) if COMPATIBLE_OUTPUT else attachment['error']
+                    if COMPATIBLE_OUTPUT:
+                        print_status(f"Warning: Attachment {i} had processing errors: {escaped_error}", "warning")
+                    else:
+                        print(f"Warning: Attachment {i} had processing errors: {escaped_error}")
                 
                 # Calculate file hash
                 file_hash = safe_calculate_file_hash(content)
@@ -488,8 +547,11 @@ def analyze_attachments(msg_obj, api_key):
                     try:
                         vt_verdict, vt_comment = check_file_hash_virustotal(file_hash, api_key, cache)
                     except Exception as e:
-                        escaped_filename = escape(filename)
-                        print(f"[yellow]Warning: VirusTotal check failed for {escaped_filename}: {e}[/yellow]")
+                        escaped_filename = output.escape(filename) if COMPATIBLE_OUTPUT else filename
+                        if COMPATIBLE_OUTPUT:
+                            print_status(f"Warning: VirusTotal check failed for {escaped_filename}: {e}", "warning")
+                        else:
+                            print(f"Warning: VirusTotal check failed for {escaped_filename}: {e}")
                         vt_verdict, vt_comment = ("unchecked", f"VT check error: {e}")
                 
                 # QR Code analysis (run once per attachment)
@@ -508,8 +570,11 @@ def analyze_attachments(msg_obj, api_key):
                             qr_results = qr_analysis.get('qr_results', [])
                             total_qr_count += len(qr_results)
                 except Exception as e:
-                    escaped_filename = escape(filename)
-                    print(f"[yellow]Warning: QR analysis failed for {escaped_filename}: {e}[/yellow]")
+                    escaped_filename = output.escape(filename) if COMPATIBLE_OUTPUT else filename
+                    if COMPATIBLE_OUTPUT:
+                        print_status(f"Warning: QR analysis failed for {escaped_filename}: {e}", "warning")
+                    else:
+                        print(f"Warning: QR analysis failed for {escaped_filename}: {e}")
                     qr_analysis = None
                 
                 # Determine final risk level (considering QR codes)
@@ -548,7 +613,10 @@ def analyze_attachments(msg_obj, api_key):
                 })
                 
             except Exception as e:
-                print(f"[red]Error processing attachment {i}: {e}[/red]")
+                if COMPATIBLE_OUTPUT:
+                    print_status(f"Error processing attachment {i}: {e}", "error")
+                else:
+                    print(f"Error processing attachment {i}: {e}")
                 # Add error result so we don't lose track
                 results.append({
                     'index': i,
@@ -574,98 +642,90 @@ def analyze_attachments(msg_obj, api_key):
                 vt_priority.get(x.get('vt_verdict', 'unchecked'), 5)
             ))
         except Exception as e:
-            print(f"[yellow]Warning: Could not sort results: {e}[/yellow]")
+            if COMPATIBLE_OUTPUT:
+                print_status(f"Warning: Could not sort results: {e}", "warning")
+            else:
+                print(f"Warning: Could not sort results: {e}")
         
         # Display results with consistent color handling
         try:
             for result in results:
                 try:
                     # Attachment header
-                    header_text = Text()
-                    header_text.append(f"Attachment {result.get('index', '?')}:", style="blue bold")
-                    print(header_text)
+                    if COMPATIBLE_OUTPUT:
+                        print_attachment_header(result.get('index', '?'))
+                    else:
+                        print(f"Attachment {result.get('index', '?')}:")
                     
                     # Filename
-                    filename_text = Text("  Filename: ")
-                    escaped_filename = escape(str(result.get('filename', 'unknown')))
-                    filename_text.append(escaped_filename, style="yellow")
-                    print(filename_text)
+                    if COMPATIBLE_OUTPUT:
+                        print_filename(result.get('filename', 'unknown'))
+                    else:
+                        print(f"  Filename: {result.get('filename', 'unknown')}")
                     
                     # Type
-                    type_text = Text("  Type: ")
-                    escaped_content_type = escape(str(result.get('content_type', 'unknown')))
-                    type_text.append(escaped_content_type)
-                    print(type_text)
+                    escaped_content_type = output.escape(str(result.get('content_type', 'unknown'))) if COMPATIBLE_OUTPUT else str(result.get('content_type', 'unknown'))
+                    if COMPATIBLE_OUTPUT:
+                        output.print(f"  Type: {escaped_content_type}")
+                    else:
+                        print(f"  Type: {escaped_content_type}")
                     
                     # Size
-                    size_text = Text("  Size: ")
-                    size_text.append(safe_format_file_size(result.get('size', 0)))
-                    print(size_text)
+                    if COMPATIBLE_OUTPUT:
+                        output.print(f"  Size: {safe_format_file_size(result.get('size', 0))}")
+                    else:
+                        print(f"  Size: {safe_format_file_size(result.get('size', 0))}")
                     
                     # SHA256 (color-coded by VT verdict)
                     if result.get('hash') != "N/A":
-                        hash_colors = {
-                            "malicious": "red",
-                            "suspicious": "yellow", 
-                            "benign": "green",
-                            "unknown": "orange3",
-                            "unchecked": "orange3"
-                        }
-                        hash_color = hash_colors.get(result.get('vt_verdict', 'unchecked'), "orange3")
-                        
-                        hash_text = Text("  SHA256: ")
-                        # Apply defanging to hash if enabled (though hashes aren't typically defanged)
-                        display_hash = result.get('hash', 'N/A')
-                        try:
-                            if defanger.should_defang():
-                                display_hash = defanger.defang_text(display_hash)
-                        except Exception:
-                            pass
-                        escaped_hash = escape(display_hash)
-                        hash_text.append(escaped_hash, style=hash_color)
-                        print(hash_text)
+                        if COMPATIBLE_OUTPUT:
+                            print_hash(result.get('hash', 'N/A'), result.get('vt_verdict', 'unchecked'))
+                        else:
+                            # Apply defanging to hash if enabled (though hashes aren't typically defanged)
+                            display_hash = result.get('hash', 'N/A')
+                            try:
+                                if defanger.should_defang():
+                                    display_hash = defanger.defang_text(display_hash)
+                            except Exception:
+                                pass
+                            print(f"  SHA256: {display_hash}")
                     
                     # Risk Level (color-coded consistently)
-                    risk_colors = {"high": "red", "medium": "yellow", "low": "green", "unknown": "orange3"}
-                    risk_color = risk_colors.get(result.get('final_risk_level', 'unknown'), "white")
-                    
-                    risk_text = Text("  Risk Level: ")
-                    risk_text.append(str(result.get('final_risk_level', 'unknown')).upper(), style=risk_color)
-                    escaped_risk_reason = escape(result.get('final_risk_reason', 'unknown'))
-                    risk_text.append(f" ({escaped_risk_reason})")
-                    print(risk_text)
+                    if COMPATIBLE_OUTPUT:
+                        print_risk_level(result.get('final_risk_level', 'unknown'), result.get('final_risk_reason', 'unknown'))
+                    else:
+                        print(f"  Risk Level: {str(result.get('final_risk_level', 'unknown')).upper()} ({result.get('final_risk_reason', 'unknown')})")
                     
                     # VirusTotal verdict (color-coded consistently)
-                    vt_colors = {
-                        "malicious": "red",
-                        "suspicious": "yellow",
-                        "benign": "green", 
-                        "unknown": "orange3",
-                        "unchecked": "orange3"
-                    }
-                    vt_color = vt_colors.get(result.get('vt_verdict', 'unchecked'), "orange3")
-                    
-                    vt_text = Text("  VirusTotal: ")
-                    vt_text.append(str(result.get('vt_verdict', 'unchecked')).upper(), style=vt_color)
-                    escaped_vt_comment = escape(result.get('vt_comment', 'unknown'))
-                    vt_text.append(f" ({escaped_vt_comment})")
-                    print(vt_text)
+                    if COMPATIBLE_OUTPUT:
+                        print_vt_verdict(result.get('vt_verdict', 'unchecked'), result.get('vt_comment', 'unknown'))
+                    else:
+                        print(f"  VirusTotal: {str(result.get('vt_verdict', 'unchecked')).upper()} ({result.get('vt_comment', 'unknown')})")
                     
                     # QR Code analysis (if applicable)
                     if result.get('qr_analysis'):
                         try:
                             qr_analyzer.display_qr_analysis(result.get('index', 0), result['qr_analysis'])
                         except Exception as e:
-                            print(f"  [yellow]QR Analysis: Error displaying results - {e}[/yellow]")
+                            if COMPATIBLE_OUTPUT:
+                                output.print(f"  [yellow]QR Analysis: Error displaying results - {e}[/yellow]")
+                            else:
+                                print(f"  QR Analysis: Error displaying results - {e}")
                     
                     print()
                     
                 except Exception as e:
-                    print(f"[red]Error displaying attachment {result.get('index', '?')}: {e}[/red]")
+                    if COMPATIBLE_OUTPUT:
+                        print_status(f"Error displaying attachment {result.get('index', '?')}: {e}", "error")
+                    else:
+                        print(f"Error displaying attachment {result.get('index', '?')}: {e}")
                     print()
                     
         except Exception as e:
-            print(f"[red]Error displaying attachment results: {e}[/red]")
+            if COMPATIBLE_OUTPUT:
+                print_status(f"Error displaying attachment results: {e}", "error")
+            else:
+                print(f"Error displaying attachment results: {e}")
         
         # Summary assessment (using final risk levels)
         try:
@@ -675,32 +735,42 @@ def analyze_attachments(msg_obj, api_key):
             qr_codes_found = total_qr_count > 0
             
             if malicious_count > 0:
-                summary = Text("CRITICAL: Malicious attachments detected!", style="red")
+                summary_text = "CRITICAL: Malicious attachments detected!"
+                summary_color = "red"
             elif qr_codes_found:
                 # Use proper singular/plural for QR codes
                 if total_qr_count == 1:
-                    summary = Text("WARNING: QR code detected - highly suspicious!", style="red")
+                    summary_text = "WARNING: QR code detected - highly suspicious!"
                 else:
-                    summary = Text("WARNING: QR codes detected - highly suspicious!", style="red")
+                    summary_text = "WARNING: QR codes detected - highly suspicious!"
+                summary_color = "red"
             elif final_high_risk_count > 0 or suspicious_count > 0:
-                summary = Text("WARNING: Suspicious attachments detected!", style="orange3")
+                summary_text = "WARNING: Suspicious attachments detected!"
+                summary_color = "orange3"
             else:
-                summary = Text("Attachments appear benign, but verify manually.", style="green")
+                summary_text = "Attachments appear benign, but verify manually."
+                summary_color = "green"
             
-            assessment_text = Text()
-            assessment_text.append("ATTACHMENT ASSESSMENT:", style="blue bold")
-            assessment_text.append(" ")
-            assessment_text.append(summary)
-            print(assessment_text)
+            if COMPATIBLE_OUTPUT:
+                output.print(f"[blue bold]ATTACHMENT ASSESSMENT:[/blue bold] [{summary_color}]{summary_text}[/{summary_color}]")
+            else:
+                print(f"ATTACHMENT ASSESSMENT: {summary_text}")
             print()
             
         except Exception as e:
-            print(f"[red]Error generating summary assessment: {e}[/red]")
+            if COMPATIBLE_OUTPUT:
+                print_status(f"Error generating summary assessment: {e}", "error")
+            else:
+                print(f"Error generating summary assessment: {e}")
             print()
         
         return results
 
     except Exception as e:
-        print(f"[red]Critical error in attachment analysis: {e}[/red]")
-        print("[yellow]Attachment analysis could not be completed.[/yellow]")
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Critical error in attachment analysis: {e}", "error")
+            print_status("Attachment analysis could not be completed.", "warning")
+        else:
+            print(f"Critical error in attachment analysis: {e}")
+            print("Attachment analysis could not be completed.")
         return []

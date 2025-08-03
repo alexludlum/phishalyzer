@@ -1,9 +1,15 @@
 import re
 import time
 import requests
-from rich import print
-from rich.markup import escape
 import ipaddress
+
+# Import compatible output system
+try:
+    from .compatible_output import output, print_status, print_ip_result
+    COMPATIBLE_OUTPUT = True
+except ImportError:
+    COMPATIBLE_OUTPUT = False
+
 from . import defanger
 
 # Network request timeout settings
@@ -21,13 +27,19 @@ def safe_extract_ips_from_headers(msg_obj):
         try:
             headers = str(msg_obj)
         except Exception as e:
-            print(f"[yellow]Warning: Could not convert message to string: {e}[/yellow]")
+            if COMPATIBLE_OUTPUT:
+                print_status(f"Warning: Could not convert message to string: {e}", "warning")
+            else:
+                print(f"Warning: Could not convert message to string: {e}")
             return []
         
         try:
             ips = list(set(re.findall(ip_regex, headers)))
         except Exception as e:
-            print(f"[yellow]Warning: Error extracting IPs: {e}[/yellow]")
+            if COMPATIBLE_OUTPUT:
+                print_status(f"Warning: Error extracting IPs: {e}", "warning")
+            else:
+                print(f"Warning: Error extracting IPs: {e}")
             return []
 
         # Filter out IP-like strings with leading zeros (except single '0')
@@ -55,7 +67,10 @@ def safe_extract_ips_from_headers(msg_obj):
         return valid_ips
         
     except Exception as e:
-        print(f"[red]Error in IP extraction: {e}[/red]")
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Error in IP extraction: {e}", "error")
+        else:
+            print(f"Error in IP extraction: {e}")
         return []
 
 def safe_is_private_ip(ip):
@@ -88,20 +103,40 @@ def safe_get_geoip_country(ip):
             if country and country.lower() not in ['undefined', 'none', '']:
                 return country
         elif response.status_code == 429:
-            print(f"[yellow]Rate limited for GeoIP lookup of {escape(ip)}[/yellow]")
+            escaped_ip = output.escape(ip) if COMPATIBLE_OUTPUT else ip
+            if COMPATIBLE_OUTPUT:
+                print_status(f"Rate limited for GeoIP lookup of {escaped_ip}", "warning")
+            else:
+                print(f"Rate limited for GeoIP lookup of {escaped_ip}")
             return "Rate Limited"
         
     except requests.exceptions.Timeout:
-        print(f"[yellow]Timeout getting country for {escape(ip)}[/yellow]")
+        escaped_ip = output.escape(ip) if COMPATIBLE_OUTPUT else ip
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Timeout getting country for {escaped_ip}", "warning")
+        else:
+            print(f"Timeout getting country for {escaped_ip}")
         return "Timeout"
     except requests.exceptions.ConnectionError:
-        print(f"[yellow]Connection error getting country for {escape(ip)}[/yellow]")
+        escaped_ip = output.escape(ip) if COMPATIBLE_OUTPUT else ip
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Connection error getting country for {escaped_ip}", "warning")
+        else:
+            print(f"Connection error getting country for {escaped_ip}")
         return "No Connection"
     except requests.exceptions.RequestException as e:
-        print(f"[yellow]Request error for {escape(ip)}: {e}[/yellow]")
+        escaped_ip = output.escape(ip) if COMPATIBLE_OUTPUT else ip
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Request error for {escaped_ip}: {e}", "warning")
+        else:
+            print(f"Request error for {escaped_ip}: {e}")
         return "Request Error"
     except Exception as e:
-        print(f"[yellow]Unexpected error getting country for {escape(ip)}: {e}[/yellow]")
+        escaped_ip = output.escape(ip) if COMPATIBLE_OUTPUT else ip
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Unexpected error getting country for {escaped_ip}: {e}", "warning")
+        else:
+            print(f"Unexpected error getting country for {escaped_ip}: {e}")
         return "Error"
     
     return "Undefined"
@@ -114,20 +149,40 @@ def safe_virustotal_request(url, headers, ip):
             return response
         except requests.exceptions.Timeout:
             if attempt < MAX_RETRIES - 1:
-                print(f"[yellow]Timeout for {escape(ip)}, retrying... (attempt {attempt + 1}/{MAX_RETRIES})[/yellow]")
+                escaped_ip = output.escape(ip) if COMPATIBLE_OUTPUT else ip
+                if COMPATIBLE_OUTPUT:
+                    print_status(f"Timeout for {escaped_ip}, retrying... (attempt {attempt + 1}/{MAX_RETRIES})", "warning")
+                else:
+                    print(f"Timeout for {escaped_ip}, retrying... (attempt {attempt + 1}/{MAX_RETRIES})")
                 time.sleep(2)
             else:
-                print(f"[yellow]Final timeout for {escape(ip)} after {MAX_RETRIES} attempts[/yellow]")
+                escaped_ip = output.escape(ip) if COMPATIBLE_OUTPUT else ip
+                if COMPATIBLE_OUTPUT:
+                    print_status(f"Final timeout for {escaped_ip} after {MAX_RETRIES} attempts", "warning")
+                else:
+                    print(f"Final timeout for {escaped_ip} after {MAX_RETRIES} attempts")
                 return None
         except requests.exceptions.ConnectionError:
             if attempt < MAX_RETRIES - 1:
-                print(f"[yellow]Connection error for {escape(ip)}, retrying... (attempt {attempt + 1}/{MAX_RETRIES})[/yellow]")
+                escaped_ip = output.escape(ip) if COMPATIBLE_OUTPUT else ip
+                if COMPATIBLE_OUTPUT:
+                    print_status(f"Connection error for {escaped_ip}, retrying... (attempt {attempt + 1}/{MAX_RETRIES})", "warning")
+                else:
+                    print(f"Connection error for {escaped_ip}, retrying... (attempt {attempt + 1}/{MAX_RETRIES})")
                 time.sleep(2)
             else:
-                print(f"[yellow]Final connection error for {escape(ip)} after {MAX_RETRIES} attempts[/yellow]")
+                escaped_ip = output.escape(ip) if COMPATIBLE_OUTPUT else ip
+                if COMPATIBLE_OUTPUT:
+                    print_status(f"Final connection error for {escaped_ip} after {MAX_RETRIES} attempts", "warning")
+                else:
+                    print(f"Final connection error for {escaped_ip} after {MAX_RETRIES} attempts")
                 return None
         except Exception as e:
-            print(f"[red]Unexpected error querying {escape(ip)}: {e}[/red]")
+            escaped_ip = output.escape(ip) if COMPATIBLE_OUTPUT else ip
+            if COMPATIBLE_OUTPUT:
+                print_status(f"Unexpected error querying {escaped_ip}: {e}", "error")
+            else:
+                print(f"Unexpected error querying {escaped_ip}: {e}")
             return None
     
     return None
@@ -138,7 +193,7 @@ def safe_handle_rate_limit(ip):
         while True:
             try:
                 choice = input(
-                    "[yellow]VirusTotal API rate limit reached.[/yellow]\n"
+                    "VirusTotal API rate limit reached.\n"
                     "Type 'wait' to wait 60 seconds, or 'skip' to proceed without checking: "
                 ).strip().lower()
                 
@@ -154,7 +209,10 @@ def safe_handle_rate_limit(ip):
                 print("\nSkipping due to user interruption.")
                 return "skip"
             except Exception as e:
-                print(f"[red]Input error: {e}[/red]")
+                if COMPATIBLE_OUTPUT:
+                    print_status(f"Input error: {e}", "error")
+                else:
+                    print(f"Input error: {e}")
                 return "skip"
     except Exception:
         return "skip"
@@ -256,7 +314,11 @@ def check_ip_virustotal(ip, api_key, cache):
             cache[ip] = ("unchecked", f"HTTP {response.status_code}")
             
     except Exception as e:
-        print(f"[red]Error querying VirusTotal for IP {escape(ip)}: {e}[/red]")
+        escaped_ip = output.escape(ip) if COMPATIBLE_OUTPUT else ip
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Error querying VirusTotal for IP {escaped_ip}: {e}", "error")
+        else:
+            print(f"Error querying VirusTotal for IP {escaped_ip}: {e}")
         cache[ip] = ("unchecked", "Unexpected error during check")
 
     return cache[ip]
@@ -267,7 +329,10 @@ def analyze_ips(msg_obj, api_key):
         ip_list = safe_extract_ips_from_headers(msg_obj)
         
         if not ip_list:
-            print("[yellow]No IP addresses found in this email.[/yellow]")
+            if COMPATIBLE_OUTPUT:
+                print_status("No IP addresses found in this email.", "warning")
+            else:
+                print("No IP addresses found in this email.")
             return []
         
         cache = {}
@@ -286,7 +351,11 @@ def analyze_ips(msg_obj, api_key):
                 ips_with_data.append((ip, country, verdict, comment))
                 
             except Exception as e:
-                print(f"[red]Error processing IP {escape(ip)}: {e}[/red]")
+                escaped_ip = output.escape(ip) if COMPATIBLE_OUTPUT else ip
+                if COMPATIBLE_OUTPUT:
+                    print_status(f"Error processing IP {escaped_ip}: {e}", "error")
+                else:
+                    print(f"Error processing IP {escaped_ip}: {e}")
                 ips_with_data.append((ip, "Error", "unchecked", f"Processing error: {e}"))
 
         # Sort results safely
@@ -299,40 +368,43 @@ def analyze_ips(msg_obj, api_key):
                 x[0]
             ))
         except Exception as e:
-            print(f"[yellow]Warning: Could not sort results: {e}[/yellow]")
+            if COMPATIBLE_OUTPUT:
+                print_status(f"Warning: Could not sort results: {e}", "warning")
+            else:
+                print(f"Warning: Could not sort results: {e}")
 
         # Display results
         try:
             for ip, country, verdict, comment in ips_with_data:
                 try:
-                    # Apply defanging if enabled, then escape for Rich
-                    display_ip = defanger.defang_ip(ip) if defanger.should_defang() else ip
-                    escaped_ip = escape(display_ip)
-                    escaped_country = escape(country)
-                    escaped_comment = escape(comment)
-                    
-                    if verdict == "malicious":
-                        verdict_text = "[red]MALICIOUS[/red]"
-                    elif verdict == "suspicious":
-                        verdict_text = "[orange3]SUSPICIOUS[/orange3]"
-                    elif verdict == "benign":
-                        verdict_text = "[green]BENIGN[/green]"
-                    elif verdict == "unchecked":
-                        verdict_text = "[orange3]UNCHECKED[/orange3]"
+                    if COMPATIBLE_OUTPUT:
+                        # Use the defang function for IP display
+                        def defang_func(ip_addr):
+                            return defanger.defang_ip(ip_addr) if defanger.should_defang() else ip_addr
+                        
+                        print_ip_result(ip, country, verdict, comment, defang_func)
                     else:
-                        verdict_text = "[orange3]UNKNOWN[/orange3]"
-
-                    print(f"IP: [yellow]{escaped_ip}[/yellow] ({escaped_country}) - Verdict: {verdict_text} ({escaped_comment})")
+                        # Simple output for non-compatible terminals
+                        display_ip = defanger.defang_ip(ip) if defanger.should_defang() else ip
+                        print(f"IP: {display_ip} ({country}) - Verdict: {verdict.upper()} ({comment})")
                     
                 except Exception as e:
-                    print(f"Error displaying result for {escape(ip)}: {e}")
+                    escaped_ip = output.escape(ip) if COMPATIBLE_OUTPUT else ip
+                    print(f"Error displaying result for {escaped_ip}: {e}")
                     
         except Exception as e:
-            print(f"[red]Error displaying IP analysis results: {e}[/red]")
+            if COMPATIBLE_OUTPUT:
+                print_status(f"Error displaying IP analysis results: {e}", "error")
+            else:
+                print(f"Error displaying IP analysis results: {e}")
 
         return ips_with_data
 
     except Exception as e:
-        print(f"[red]Critical error in IP analysis: {e}[/red]")
-        print("[yellow]IP analysis could not be completed.[/yellow]")
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Critical error in IP analysis: {e}", "error")
+            print_status("IP analysis could not be completed.", "warning")
+        else:
+            print(f"Critical error in IP analysis: {e}")
+            print("IP analysis could not be completed.")
         return []

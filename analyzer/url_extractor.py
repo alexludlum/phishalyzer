@@ -3,12 +3,18 @@ import time
 import requests
 import base64
 import os
-from rich import print
 from builtins import print as builtin_print
-from rich.markup import escape
 from urllib.parse import urlparse
-from . import defanger
 from collections import defaultdict
+
+# Import compatible output system
+try:
+    from .compatible_output import output, print_status
+    COMPATIBLE_OUTPUT = True
+except ImportError:
+    COMPATIBLE_OUTPUT = False
+
+from . import defanger
 
 # Network request timeout settings
 REQUEST_TIMEOUT = 10
@@ -78,13 +84,19 @@ def safe_extract_urls_from_headers(msg_obj):
         try:
             headers = str(msg_obj)
         except Exception as e:
-            print(f"[yellow]Warning: Could not convert message to string: {e}[/yellow]")
+            if COMPATIBLE_OUTPUT:
+                print_status(f"Warning: Could not convert message to string: {e}", "warning")
+            else:
+                print(f"Warning: Could not convert message to string: {e}")
             return []
         
         try:
             urls = list(set(re.findall(url_regex, headers)))
         except Exception as e:
-            print(f"[yellow]Warning: Error extracting URLs: {e}[/yellow]")
+            if COMPATIBLE_OUTPUT:
+                print_status(f"Warning: Error extracting URLs: {e}", "warning")
+            else:
+                print(f"Warning: Error extracting URLs: {e}")
             return []
 
         # Validate and clean URLs
@@ -103,7 +115,10 @@ def safe_extract_urls_from_headers(msg_obj):
         return valid_urls
         
     except Exception as e:
-        print(f"[red]Error in URL extraction: {e}[/red]")
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Error in URL extraction: {e}", "error")
+        else:
+            print(f"Error in URL extraction: {e}")
         return []
 
 def extract_domain(url):
@@ -198,7 +213,11 @@ def safe_url_to_id(url):
         b64 = base64.urlsafe_b64encode(url_bytes).decode().strip("=")
         return b64
     except Exception as e:
-        print(f"[yellow]Error encoding URL {escape(str(url))}: {e}[/yellow]")
+        escaped_url = output.escape(str(url)) if COMPATIBLE_OUTPUT else str(url)
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Error encoding URL {escaped_url}: {e}", "warning")
+        else:
+            print(f"Error encoding URL {escaped_url}: {e}")
         return None
 
 def safe_virustotal_request(url, headers, original_url):
@@ -209,20 +228,40 @@ def safe_virustotal_request(url, headers, original_url):
             return response
         except requests.exceptions.Timeout:
             if attempt < MAX_RETRIES - 1:
-                print(f"[yellow]Timeout for {escape(str(original_url))}, retrying... (attempt {attempt + 1}/{MAX_RETRIES})[/yellow]")
+                escaped_url = output.escape(str(original_url)) if COMPATIBLE_OUTPUT else str(original_url)
+                if COMPATIBLE_OUTPUT:
+                    print_status(f"Timeout for {escaped_url}, retrying... (attempt {attempt + 1}/{MAX_RETRIES})", "warning")
+                else:
+                    print(f"Timeout for {escaped_url}, retrying... (attempt {attempt + 1}/{MAX_RETRIES})")
                 time.sleep(2)
             else:
-                print(f"[yellow]Final timeout for {escape(str(original_url))} after {MAX_RETRIES} attempts[/yellow]")
+                escaped_url = output.escape(str(original_url)) if COMPATIBLE_OUTPUT else str(original_url)
+                if COMPATIBLE_OUTPUT:
+                    print_status(f"Final timeout for {escaped_url} after {MAX_RETRIES} attempts", "warning")
+                else:
+                    print(f"Final timeout for {escaped_url} after {MAX_RETRIES} attempts")
                 return None
         except requests.exceptions.ConnectionError:
             if attempt < MAX_RETRIES - 1:
-                print(f"[yellow]Connection error for {escape(str(original_url))}, retrying... (attempt {attempt + 1}/{MAX_RETRIES})[/yellow]")
+                escaped_url = output.escape(str(original_url)) if COMPATIBLE_OUTPUT else str(original_url)
+                if COMPATIBLE_OUTPUT:
+                    print_status(f"Connection error for {escaped_url}, retrying... (attempt {attempt + 1}/{MAX_RETRIES})", "warning")
+                else:
+                    print(f"Connection error for {escaped_url}, retrying... (attempt {attempt + 1}/{MAX_RETRIES})")
                 time.sleep(2)
             else:
-                print(f"[yellow]Final connection error for {escape(str(original_url))} after {MAX_RETRIES} attempts[/yellow]")
+                escaped_url = output.escape(str(original_url)) if COMPATIBLE_OUTPUT else str(original_url)
+                if COMPATIBLE_OUTPUT:
+                    print_status(f"Final connection error for {escaped_url} after {MAX_RETRIES} attempts", "warning")
+                else:
+                    print(f"Final connection error for {escaped_url} after {MAX_RETRIES} attempts")
                 return None
         except Exception as e:
-            print(f"[red]Unexpected error querying {escape(str(original_url))}: {e}[/red]")
+            escaped_url = output.escape(str(original_url)) if COMPATIBLE_OUTPUT else str(original_url)
+            if COMPATIBLE_OUTPUT:
+                print_status(f"Unexpected error querying {escaped_url}: {e}", "error")
+            else:
+                print(f"Unexpected error querying {escaped_url}: {e}")
             return None
     
     return None
@@ -232,10 +271,14 @@ def safe_handle_rate_limit(url):
     try:
         while True:
             try:
-                choice = input(
-                    "[yellow]VirusTotal API rate limit reached.[/yellow]\n"
-                    "Type 'wait' to wait 60 seconds, or 'skip' to proceed without checking: "
-                ).strip().lower()
+                if COMPATIBLE_OUTPUT:
+                    print_status("VirusTotal API rate limit reached.", "warning")
+                    choice = input("Type 'wait' to wait 60 seconds, or 'skip' to proceed without checking: ").strip().lower()
+                else:
+                    choice = input(
+                        "VirusTotal API rate limit reached.\n"
+                        "Type 'wait' to wait 60 seconds, or 'skip' to proceed without checking: "
+                    ).strip().lower()
                 
                 if choice == "wait":
                     print("Waiting 60 seconds...")
@@ -249,7 +292,10 @@ def safe_handle_rate_limit(url):
                 print("\nSkipping due to user interruption.")
                 return "skip"
             except Exception as e:
-                print(f"[red]Input error: {e}[/red]")
+                if COMPATIBLE_OUTPUT:
+                    print_status(f"Input error: {e}", "error")
+                else:
+                    print(f"Input error: {e}")
                 return "skip"
     except Exception:
         return "skip"
@@ -349,7 +395,11 @@ def check_url_virustotal(url, api_key, cache):
             cache[url] = ("unchecked", f"HTTP {response.status_code}")
             
     except Exception as e:
-        print(f"[red]Error querying VirusTotal for URL {escape(str(url))}: {e}[/red]")
+        escaped_url = output.escape(str(url)) if COMPATIBLE_OUTPUT else str(url)
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Error querying VirusTotal for URL {escaped_url}: {e}", "error")
+        else:
+            print(f"Error querying VirusTotal for URL {escaped_url}: {e}")
         cache[url] = ("unchecked", "Unexpected error during check")
 
     return cache[url]
@@ -382,8 +432,12 @@ def analyze_urls(msg_obj, api_key):
         url_list = safe_extract_urls_from_headers(msg_obj)
         
         if not url_list:
-            print("[yellow]No URLs found in this email.[/yellow]")
-            print("[yellow]Please verify manually as URLs might be obfuscated or embedded within attachments.[/yellow]")
+            if COMPATIBLE_OUTPUT:
+                print_status("No URLs found in this email.", "warning")
+                print_status("Please verify manually as URLs might be obfuscated or embedded within attachments.", "warning")
+            else:
+                print("No URLs found in this email.")
+                print("Please verify manually as URLs might be obfuscated or embedded within attachments.")
             if global_results:
                 try:
                     setattr(global_results, 'last_url_analysis_results', None)
@@ -419,7 +473,11 @@ def analyze_urls(msg_obj, api_key):
                 })
                 
             except Exception as e:
-                print(f"[red]Error processing domain {escape(str(domain))}: {e}[/red]")
+                escaped_domain = output.escape(str(domain)) if COMPATIBLE_OUTPUT else str(domain)
+                if COMPATIBLE_OUTPUT:
+                    print_status(f"Error processing domain {escaped_domain}: {e}", "error")
+                else:
+                    print(f"Error processing domain {escaped_domain}: {e}")
                 results.append({
                     'domain': domain,
                     'urls': urls,
@@ -434,7 +492,10 @@ def analyze_urls(msg_obj, api_key):
             sort_order = {"malicious": 0, "suspicious": 1, "unchecked": 2, "benign": 3}
             results.sort(key=lambda x: (sort_order.get(x['verdict'], 4), x['domain']))
         except Exception as e:
-            print(f"[yellow]Warning: Could not sort results: {e}[/yellow]")
+            if COMPATIBLE_OUTPUT:
+                print_status(f"Warning: Could not sort results: {e}", "warning")
+            else:
+                print(f"Warning: Could not sort results: {e}")
 
         # Store results globally for later viewing
         if global_results:
@@ -461,7 +522,10 @@ def analyze_urls(msg_obj, api_key):
                 malicious_count = len(malicious_domains)
                 
                 builtin_print()  # Space before section
-                print(f"[red]MALICIOUS DOMAINS ({malicious_count}):[/red]")
+                if COMPATIBLE_OUTPUT:
+                    output.print(f"[red]MALICIOUS DOMAINS ({malicious_count}):[/red]")
+                else:
+                    print(f"MALICIOUS DOMAINS ({malicious_count}):")
                 for result in malicious_domains:
                     domain = result['domain']
                     url_count = result['url_count']
@@ -481,7 +545,10 @@ def analyze_urls(msg_obj, api_key):
                 suspicious_count = len(suspicious_domains)
                 
                 builtin_print()  # Space before section
-                print(f"[orange3]SUSPICIOUS DOMAINS ({suspicious_count}):[/orange3]")
+                if COMPATIBLE_OUTPUT:
+                    output.print(f"[orange3]SUSPICIOUS DOMAINS ({suspicious_count}):[/orange3]")
+                else:
+                    print(f"SUSPICIOUS DOMAINS ({suspicious_count}):")
                 for result in suspicious_domains:
                     domain = result['domain']
                     url_count = result['url_count']
@@ -501,7 +568,10 @@ def analyze_urls(msg_obj, api_key):
                 unchecked_count = len(unchecked_domains)
                 
                 builtin_print()  # Space before section
-                print(f"[orange3]UNCHECKED DOMAINS ({unchecked_count}):[/orange3]")
+                if COMPATIBLE_OUTPUT:
+                    output.print(f"[orange3]UNCHECKED DOMAINS ({unchecked_count}):[/orange3]")
+                else:
+                    print(f"UNCHECKED DOMAINS ({unchecked_count}):")
                 
                 # Group malformed/truncated URLs together
                 malformed_domains = [r for r in unchecked_domains if r['domain'] in ['malformed-urls', 'truncated-urls', 'unknown']]
@@ -581,7 +651,10 @@ def analyze_urls(msg_obj, api_key):
                 benign_count = len(benign_domains)
                 
                 builtin_print()  # Space before section
-                print(f"[green]BENIGN DOMAINS ({benign_count}):[/green]")
+                if COMPATIBLE_OUTPUT:
+                    output.print(f"[green]BENIGN DOMAINS ({benign_count}):[/green]")
+                else:
+                    print(f"BENIGN DOMAINS ({benign_count}):")
                 for result in benign_domains:
                     domain = result['domain']
                     url_count = result['url_count']
@@ -596,14 +669,24 @@ def analyze_urls(msg_obj, api_key):
             domains_with_multiple = [r for r in results if r['url_count'] > 1]
             if domains_with_multiple or total_domains > 5:
                 builtin_print()  # Space before menu hint
-                print("[blue][Use menu option 'View collapsed URL variations' for full breakdown][/blue]")
+                if COMPATIBLE_OUTPUT:
+                    output.print("[blue][Use menu option 'View collapsed URL variations' for full breakdown][/blue]")
+                else:
+                    print("[Use menu option 'View collapsed URL variations' for full breakdown]")
                     
         except Exception as e:
-            print(f"[red]Error displaying URL analysis results: {e}[/red]")
+            if COMPATIBLE_OUTPUT:
+                print_status(f"Error displaying URL analysis results: {e}", "error")
+            else:
+                print(f"Error displaying URL analysis results: {e}")
 
         return results
 
     except Exception as e:
-        print(f"[red]Critical error in URL analysis: {e}[/red]")
-        print("[yellow]URL analysis could not be completed.[/yellow]")
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Critical error in URL analysis: {e}", "error")
+            print_status("URL analysis could not be completed.", "warning")
+        else:
+            print(f"Critical error in URL analysis: {e}")
+            print("URL analysis could not be completed.")
         return []

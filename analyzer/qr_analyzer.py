@@ -1,11 +1,16 @@
 import io
 import time
 import requests
-from rich import print
-from rich.text import Text
-from rich.markup import escape
 import base64
 from urllib.parse import urlparse
+
+# Import compatible output system
+try:
+    from .compatible_output import output, print_status, create_colored_text
+    COMPATIBLE_OUTPUT = True
+except ImportError:
+    COMPATIBLE_OUTPUT = False
+
 from . import defanger
 
 try:
@@ -72,7 +77,10 @@ def extract_images_from_pdf(pdf_content):
         return images
     
     except Exception as e:
-        print(f"[red]Error extracting images from PDF: {e}[/red]")
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Error extracting images from PDF: {e}", "error")
+        else:
+            print(f"Error extracting images from PDF: {e}")
         return []
 
 def detect_qr_codes_in_image(pil_image):
@@ -114,7 +122,10 @@ def detect_qr_codes_in_image(pil_image):
         return results
     
     except Exception as e:
-        print(f"[red]Error detecting QR codes with OpenCV: {e}[/red]")
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Error detecting QR codes with OpenCV: {e}", "error")
+        else:
+            print(f"Error detecting QR codes with OpenCV: {e}")
         return []
 
 def check_url_virustotal_qr(url, api_key, cache):
@@ -138,10 +149,15 @@ def check_url_virustotal_qr(url, api_key, cache):
         response = requests.get(api_url, headers=headers, timeout=10)
         if response.status_code == 429:
             while True:
-                choice = input(
-                    "[yellow]VirusTotal API rate limit reached.[/yellow]\n"
-                    "Type 'wait' to wait 60 seconds, or 'skip' to proceed without checking: "
-                ).strip().lower()
+                if COMPATIBLE_OUTPUT:
+                    print_status("VirusTotal API rate limit reached.", "warning")
+                    choice = input("Type 'wait' to wait 60 seconds, or 'skip' to proceed without checking: ").strip().lower()
+                else:
+                    choice = input(
+                        "VirusTotal API rate limit reached.\n"
+                        "Type 'wait' to wait 60 seconds, or 'skip' to proceed without checking: "
+                    ).strip().lower()
+                    
                 if choice == "wait":
                     print("Waiting 60 seconds...")
                     time.sleep(60)
@@ -181,7 +197,11 @@ def check_url_virustotal_qr(url, api_key, cache):
         else:
             cache[url] = ("unchecked", "URL will need to be investigated manually")
     except Exception as e:
-        print(f"[red]Error querying VirusTotal for QR URL {escape(url)}: {e}[/red]")
+        escaped_url = output.escape(url) if COMPATIBLE_OUTPUT else url
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Error querying VirusTotal for QR URL {escaped_url}: {e}", "error")
+        else:
+            print(f"Error querying VirusTotal for QR URL {escaped_url}: {e}")
         cache[url] = ("unchecked", "URL will need to be investigated manually")
 
     return cache[url]
@@ -276,23 +296,27 @@ def analyze_pdf_qr_codes(attachment_result, api_key):
 def display_qr_analysis(attachment_index, qr_analysis):
     """Display QR code analysis results with proper formatting."""
     if qr_analysis.get('error'):
-        error_text = Text("  QR Analysis: ")
-        if "Missing dependencies" in qr_analysis['error']:
-            error_text.append(escape(qr_analysis['error']), style="orange3")
+        if COMPATIBLE_OUTPUT:
+            if "Missing dependencies" in qr_analysis['error']:
+                output.print(f"  [orange3]QR Analysis: {output.escape(qr_analysis['error'])}[/orange3]")
+            else:
+                output.print(f"  QR Analysis: {output.escape(qr_analysis['error'])}")
         else:
-            error_text.append(escape(qr_analysis['error']))
-        print(error_text)
+            print(f"  QR Analysis: {qr_analysis['error']}")
         return
     
     if not qr_analysis.get('qr_found'):
-        no_qr_text = Text("  QR Analysis: No QR codes detected")
-        print(no_qr_text)
+        if COMPATIBLE_OUTPUT:
+            output.print("  QR Analysis: No QR codes detected")
+        else:
+            print("  QR Analysis: No QR codes detected")
         return
     
     # QR codes detected header
-    header_text = Text("  ")
-    header_text.append("QR Code Detected! Details:", style="red")
-    print(header_text)
+    if COMPATIBLE_OUTPUT:
+        output.print("  [red]QR Code Detected! Details:[/red]")
+    else:
+        print("  QR Code Detected! Details:")
     
     # Display each QR code
     for i, qr in enumerate(qr_analysis.get('qr_results', []), 1):
@@ -304,10 +328,12 @@ def display_qr_analysis(attachment_index, qr_analysis):
             
             # QR code URL line with "Destination:"
             display_url = defanger.defang_url(url) if defanger.should_defang() else url
-            escaped_url = escape(display_url)
-            qr_url_text = Text(f"    QR {i} (Page {qr['page']}) Destination: ")
-            qr_url_text.append(escaped_url, style="yellow")
-            print(qr_url_text)
+            escaped_url = output.escape(display_url) if COMPATIBLE_OUTPUT else display_url
+            
+            if COMPATIBLE_OUTPUT:
+                output.print(f"    QR {i} (Page {qr['page']}) Destination: [yellow]{escaped_url}[/yellow]")
+            else:
+                print(f"    QR {i} (Page {qr['page']}) Destination: {escaped_url}")
             
             # Verdict line with consistent color scheme
             verdict_colors = {
@@ -317,16 +343,20 @@ def display_qr_analysis(attachment_index, qr_analysis):
                 "unchecked": "orange3"
             }
             verdict_color = verdict_colors.get(verdict, "orange3")
+            escaped_comment = output.escape(comment) if COMPATIBLE_OUTPUT else comment
             
-            verdict_text = Text("    Verdict: ")
-            verdict_text.append(verdict.upper(), style=verdict_color)
-            verdict_text.append(f" ({escape(comment)})")
-            print(verdict_text)
+            if COMPATIBLE_OUTPUT:
+                output.print(f"    Verdict: [{verdict_color}]{verdict.upper()}[/{verdict_color}] ({escaped_comment})")
+            else:
+                print(f"    Verdict: {verdict.upper()} ({escaped_comment})")
         else:
             # Non-URL QR code
-            escaped_data = escape(qr['data'])
-            non_url_text = Text(f"    QR {i} (Page {qr['page']}) Data: {escaped_data}")
-            print(non_url_text)
+            escaped_data = output.escape(qr['data']) if COMPATIBLE_OUTPUT else qr['data']
+            escaped_type = output.escape(qr['type']) if COMPATIBLE_OUTPUT else qr['type']
             
-            type_text = Text(f"    Type: {escape(qr['type'])}")
-            print(type_text)
+            if COMPATIBLE_OUTPUT:
+                output.print(f"    QR {i} (Page {qr['page']}) Data: {escaped_data}")
+                output.print(f"    Type: {escaped_type}")
+            else:
+                print(f"    QR {i} (Page {qr['page']}) Data: {escaped_data}")
+                print(f"    Type: {escaped_type}")

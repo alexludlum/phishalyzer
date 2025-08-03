@@ -8,6 +8,7 @@ from . import url_extractor
 from . import attachment_analyzer
 from . import qr_analyzer
 from . import defanger
+from . import compatible_output
 
 __all__ = [
     'parser',
@@ -16,5 +17,6 @@ __all__ = [
     'url_extractor',
     'attachment_analyzer',
     'qr_analyzer',
-    'defanger'
+    'defanger',
+    'compatible_output'
 ]

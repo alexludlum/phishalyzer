@@ -3,11 +3,10 @@ import time
 import requests
 import base64
 import os
-from builtins import print as builtin_print
 from urllib.parse import urlparse
 from collections import defaultdict
 
-# Import compatible output system
+# Import universal output system
 try:
     from .compatible_output import output, print_status
     COMPATIBLE_OUTPUT = True
@@ -504,7 +503,7 @@ def analyze_urls(msg_obj, api_key):
             except Exception:
                 pass
 
-        # Display results with WORKING defanging
+        # Display results with universal output system (NO builtin_print!)
         try:
             # Group results by verdict
             malicious_domains = [r for r in results if r['verdict'] == 'malicious']
@@ -515,59 +514,73 @@ def analyze_urls(msg_obj, api_key):
             total_urls = sum(r['url_count'] for r in results)
             total_domains = len(results)
             
-            builtin_print(f"Found {total_urls} URL{'s' if total_urls != 1 else ''} across {total_domains} domain{'s' if total_domains != 1 else ''}")
+            # Use universal output for everything
+            if COMPATIBLE_OUTPUT:
+                output.print(f"Found [blue]{total_urls}[/blue] URL{'s' if total_urls != 1 else ''} across [blue]{total_domains}[/blue] domain{'s' if total_domains != 1 else ''}")
+            else:
+                print(f"Found {total_urls} URL{'s' if total_urls != 1 else ''} across {total_domains} domain{'s' if total_domains != 1 else ''}")
             
             # Display MALICIOUS domains (first)
             if malicious_domains:
                 malicious_count = len(malicious_domains)
                 
-                builtin_print()  # Space before section
+                print()  # Space before section
                 if COMPATIBLE_OUTPUT:
                     output.print(f"[red]MALICIOUS DOMAINS ({malicious_count}):[/red]")
                 else:
                     print(f"MALICIOUS DOMAINS ({malicious_count}):")
+                    
                 for result in malicious_domains:
                     domain = result['domain']
                     url_count = result['url_count']
                     comment = result['comment']
                     representative_url = result['representative_url']
                     
-                    # Apply working defanging
+                    # Apply working defanging and escaping
                     display_domain = simple_defang(domain)
-                    display_url = simple_defang(representative_url) if representative_url else ""
+                    escaped_domain = output.escape(display_domain) if COMPATIBLE_OUTPUT else display_domain
+                    escaped_comment = output.escape(comment) if COMPATIBLE_OUTPUT else comment
                     
-                    builtin_print(f"• {display_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {comment}")
+                    print(f"• {escaped_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {escaped_comment}")
+                    
                     if representative_url:
-                        builtin_print(f"  Sample: {display_url}")
+                        display_url = simple_defang(representative_url)
+                        escaped_url = output.escape(display_url) if COMPATIBLE_OUTPUT else display_url
+                        print(f"  Sample: {escaped_url}")
             
-            # Display SUSPICIOUS domains (after malicious)
+            # Display SUSPICIOUS domains
             if suspicious_domains:
                 suspicious_count = len(suspicious_domains)
                 
-                builtin_print()  # Space before section
+                print()  # Space before section
                 if COMPATIBLE_OUTPUT:
                     output.print(f"[orange3]SUSPICIOUS DOMAINS ({suspicious_count}):[/orange3]")
                 else:
                     print(f"SUSPICIOUS DOMAINS ({suspicious_count}):")
+                    
                 for result in suspicious_domains:
                     domain = result['domain']
                     url_count = result['url_count']
                     comment = result['comment']
                     representative_url = result['representative_url']
                     
-                    # Apply working defanging
+                    # Apply working defanging and escaping
                     display_domain = simple_defang(domain)
-                    display_url = simple_defang(representative_url) if representative_url else ""
+                    escaped_domain = output.escape(display_domain) if COMPATIBLE_OUTPUT else display_domain
+                    escaped_comment = output.escape(comment) if COMPATIBLE_OUTPUT else comment
                     
-                    builtin_print(f"• {display_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {comment}")
+                    print(f"• {escaped_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {escaped_comment}")
+                    
                     if representative_url:
-                        builtin_print(f"  Sample: {display_url}")
+                        display_url = simple_defang(representative_url)
+                        escaped_url = output.escape(display_url) if COMPATIBLE_OUTPUT else display_url
+                        print(f"  Sample: {escaped_url}")
             
-            # Display UNCHECKED domains (second, after malicious)
+            # Display UNCHECKED domains
             if unchecked_domains:
                 unchecked_count = len(unchecked_domains)
                 
-                builtin_print()  # Space before section
+                print()  # Space before section
                 if COMPATIBLE_OUTPUT:
                     output.print(f"[orange3]UNCHECKED DOMAINS ({unchecked_count}):[/orange3]")
                 else:
@@ -584,10 +597,12 @@ def analyze_urls(msg_obj, api_key):
                         url_count = result['url_count']
                         comment = result['comment']
                         
-                        # Apply working defanging
+                        # Apply working defanging and escaping
                         display_domain = simple_defang(domain)
+                        escaped_domain = output.escape(display_domain) if COMPATIBLE_OUTPUT else display_domain
+                        escaped_comment = output.escape(comment) if COMPATIBLE_OUTPUT else comment
                         
-                        builtin_print(f"• {display_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {comment}")
+                        print(f"• {escaped_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {escaped_comment}")
                 
                 # Group malformed URLs together
                 if malformed_domains:
@@ -597,10 +612,10 @@ def analyze_urls(msg_obj, api_key):
                     if normal_unchecked and len(normal_unchecked) > 3:
                         # Show condensed view for all unchecked
                         total_unchecked_urls = sum(r['url_count'] for r in unchecked_domains)
-                        builtin_print(f"• {unchecked_count} domains with {total_unchecked_urls} URL{'s' if total_unchecked_urls != 1 else ''} total - Not found in VirusTotal")
+                        print(f"• {unchecked_count} domains with {total_unchecked_urls} URL{'s' if total_unchecked_urls != 1 else ''} total - Not found in VirusTotal")
                     else:
                         # Show malformed separately
-                        builtin_print(f"• {malformed_count} malformed/truncated domains ({malformed_url_count} URL{'s' if malformed_url_count != 1 else ''}) - Not found in VirusTotal")
+                        print(f"• {malformed_count} malformed/truncated domains ({malformed_url_count} URL{'s' if malformed_url_count != 1 else ''}) - Not found in VirusTotal")
                     
                     # Show samples from normal domains first, then malformed if needed
                     sample_urls = []
@@ -610,7 +625,8 @@ def analyze_urls(msg_obj, api_key):
                         url = normal_unchecked[i]['representative_url']
                         if url:
                             display_url = simple_defang(url)
-                            sample_urls.append(display_url)
+                            escaped_url = output.escape(display_url) if COMPATIBLE_OUTPUT else display_url
+                            sample_urls.append(escaped_url)
                     
                     # If we need more samples and have malformed URLs
                     if len(sample_urls) < 3 and malformed_domains:
@@ -619,18 +635,19 @@ def analyze_urls(msg_obj, api_key):
                             url = malformed_domains[i]['representative_url']
                             if url:
                                 display_url = simple_defang(url)
-                                sample_urls.append(display_url)
+                                escaped_url = output.escape(display_url) if COMPATIBLE_OUTPUT else display_url
+                                sample_urls.append(escaped_url)
                     
                     if sample_urls:
-                        builtin_print(f"  Samples: {', '.join(sample_urls)}")
+                        print(f"  Samples: {', '.join(sample_urls)}")
                         remaining_domains = unchecked_count - len(sample_urls)
                         if remaining_domains > 0:
-                            builtin_print(f"  ... and {remaining_domains} more")
+                            print(f"  ... and {remaining_domains} more")
                 
                 elif len(normal_unchecked) > 3:
                     # Only normal unchecked domains, too many to show individually
                     total_unchecked_urls = sum(r['url_count'] for r in unchecked_domains)
-                    builtin_print(f"• {unchecked_count} domains with {total_unchecked_urls} URL{'s' if total_unchecked_urls != 1 else ''} total - Not found in VirusTotal")
+                    print(f"• {unchecked_count} domains with {total_unchecked_urls} URL{'s' if total_unchecked_urls != 1 else ''} total - Not found in VirusTotal")
                     
                     # Show first few samples
                     sample_urls = []
@@ -639,36 +656,40 @@ def analyze_urls(msg_obj, api_key):
                         url = normal_unchecked[i]['representative_url']
                         if url:
                             display_url = simple_defang(url)
-                            sample_urls.append(display_url)
+                            escaped_url = output.escape(display_url) if COMPATIBLE_OUTPUT else display_url
+                            sample_urls.append(escaped_url)
                     
                     if sample_urls:
-                        builtin_print(f"  Samples: {', '.join(sample_urls)}")
+                        print(f"  Samples: {', '.join(sample_urls)}")
                         if unchecked_count > sample_count:
-                            builtin_print(f"  ... and {unchecked_count - sample_count} more")
+                            print(f"  ... and {unchecked_count - sample_count} more")
             
             # Display BENIGN domains (last)
             if benign_domains:
                 benign_count = len(benign_domains)
                 
-                builtin_print()  # Space before section
+                print()  # Space before section
                 if COMPATIBLE_OUTPUT:
                     output.print(f"[green]BENIGN DOMAINS ({benign_count}):[/green]")
                 else:
                     print(f"BENIGN DOMAINS ({benign_count}):")
+                    
                 for result in benign_domains:
                     domain = result['domain']
                     url_count = result['url_count']
                     comment = result['comment']
                     
-                    # Apply working defanging
+                    # Apply working defanging and escaping
                     display_domain = simple_defang(domain)
+                    escaped_domain = output.escape(display_domain) if COMPATIBLE_OUTPUT else display_domain
+                    escaped_comment = output.escape(comment) if COMPATIBLE_OUTPUT else comment
                     
-                    builtin_print(f"• {display_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {comment}")
+                    print(f"• {escaped_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {escaped_comment}")
             
             # Show menu hint if there are domains with multiple URLs or many domains
             domains_with_multiple = [r for r in results if r['url_count'] > 1]
             if domains_with_multiple or total_domains > 5:
-                builtin_print()  # Space before menu hint
+                print()  # Space before menu hint
                 if COMPATIBLE_OUTPUT:
                     output.print("[blue][Use menu option 'View collapsed URL variations' for full breakdown][/blue]")
                 else:

@@ -2,7 +2,6 @@ extract-msg
 dnspython
 requests
 email-validator
-rich
 PyMuPDF
 Pillow
 opencv-python

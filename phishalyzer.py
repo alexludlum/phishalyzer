@@ -8,14 +8,13 @@ from analyzer import url_extractor
 from analyzer import attachment_analyzer
 from analyzer import defanger
 
-# Import the compatible output system instead of Rich
+# Import the universal output system
 try:
     from analyzer.compatible_output import output, print_header, print_status
     COMPATIBLE_OUTPUT = True
 except ImportError:
     # Fallback if compatible_output module isn't available
     COMPATIBLE_OUTPUT = False
-    print = print  # Use built-in print
 
 API_KEY_FILE = os.path.expanduser("~/.phishalyzer_vt_api_key")
 OUTPUT_MODE_FILE = os.path.expanduser("~/.phishalyzer_output_mode")
@@ -25,24 +24,28 @@ output_mode = "fanged"  # default output mode - accessible globally
 # Global variable to store last analysis results
 last_url_analysis_results = None
 
-def simple_defang(text):
-    """Simple defanging function that actually works"""
-    if not text or not isinstance(text, str):
-        return text
-    
-    # Check if defanging is enabled
+def check_defang_mode():
+    """Debug function to check current defang mode"""
     try:
         if os.path.exists(OUTPUT_MODE_FILE):
             with open(OUTPUT_MODE_FILE, "r", encoding='utf-8') as f:
                 content = f.read().strip()
-                if content != "defanged":
-                    return text  # Don't defang if not in defanged mode
-        else:
-            return text  # No settings file, don't defang
+                return content
+        return "fanged"  # default
     except:
-        return text  # Error reading file, don't defang
+        return "fanged"
+
+def apply_defanging(text):
+    """Centralized defanging function that ALWAYS works when in defanged mode"""
+    if not text or not isinstance(text, str):
+        return text
     
-    # Apply defanging
+    # Check current mode
+    current_mode = check_defang_mode()
+    if current_mode != "defanged":
+        return text  # Don't defang if not in defanged mode
+    
+    # Apply defanging transformations
     result = text
     
     # Replace protocols
@@ -51,28 +54,33 @@ def simple_defang(text):
     result = result.replace('ftp://', 'ftp[:]//') 
     
     # Replace common TLDs and domains
-    result = result.replace('.net', '[.]net')
-    result = result.replace('.com', '[.]com')
-    result = result.replace('.org', '[.]org')
-    result = result.replace('.edu', '[.]edu')
-    result = result.replace('.gov', '[.]gov')
-    result = result.replace('.mil', '[.]mil')
-    result = result.replace('.int', '[.]int')
-    result = result.replace('.co.', '[.]co[.]')
-    result = result.replace('.uk', '[.]uk')
-    result = result.replace('.de', '[.]de')
-    result = result.replace('.fr', '[.]fr')
-    result = result.replace('.io', '[.]io')
-    result = result.replace('.me', '[.]me')
-    result = result.replace('.ru', '[.]ru')
-    result = result.replace('.cn', '[.]cn')
-    result = result.replace('.jp', '[.]jp')
-    result = result.replace('.au', '[.]au')
-    result = result.replace('.ca', '[.]ca')
-    result = result.replace('.info', '[.]info')
-    result = result.replace('.biz', '[.]biz')
-    result = result.replace('.tv', '[.]tv')
-    result = result.replace('.cc', '[.]cc')
+    replacements = [
+        ('.com', '[.]com'),
+        ('.net', '[.]net'),
+        ('.org', '[.]org'),
+        ('.edu', '[.]edu'),
+        ('.gov', '[.]gov'),
+        ('.mil', '[.]mil'),
+        ('.int', '[.]int'),
+        ('.co.', '[.]co[.]'),
+        ('.uk', '[.]uk'),
+        ('.de', '[.]de'),
+        ('.fr', '[.]fr'),
+        ('.io', '[.]io'),
+        ('.me', '[.]me'),
+        ('.ru', '[.]ru'),
+        ('.cn', '[.]cn'),
+        ('.jp', '[.]jp'),
+        ('.au', '[.]au'),
+        ('.ca', '[.]ca'),
+        ('.info', '[.]info'),
+        ('.biz', '[.]biz'),
+        ('.tv', '[.]tv'),
+        ('.cc', '[.]cc')
+    ]
+    
+    for original, replacement in replacements:
+        result = result.replace(original, replacement)
     
     return result
 
@@ -245,7 +253,6 @@ def prompt_api_key_menu():
                         return saved_key
                     
                     if choice == "" or choice == "4":
-                        # Return to main menu (ENTER or option 4)
                         return saved_key
                         
                     if choice == "1":
@@ -271,7 +278,7 @@ def prompt_api_key_menu():
                         else:
                             print("Enter your VirusTotal API key (create an account at https://virustotal.com/gui/my-apikey), or press Enter to cancel:")
                         user_key = safe_input("")
-                        if user_key is None:  # User cancelled
+                        if user_key is None:
                             if COMPATIBLE_OUTPUT:
                                 print_status("No changes made to API key.", "warning")
                             else:
@@ -293,8 +300,6 @@ def prompt_api_key_menu():
                                 print_status("No changes made to API key.", "warning")
                             else:
                                 print("No changes made to API key.")
-                    elif choice == "4":
-                        return saved_key
                     else:
                         print("Invalid input. Please enter a number between 1 and 4.")
                 except Exception as e:
@@ -311,7 +316,7 @@ def prompt_api_key_menu():
                 print("No VirusTotal API key saved.")
                 print("Enter your VirusTotal API key (create an account at https://virustotal.com/gui/my-apikey), or press Enter to skip:")
             user_key = safe_input("")
-            if user_key is None:  # User cancelled
+            if user_key is None:
                 if COMPATIBLE_OUTPUT:
                     print_status("Continuing without VirusTotal API key. Reputation checks will be skipped.", "warning")
                 else:
@@ -368,7 +373,7 @@ def print_current_config(vt_api_key, output_mode):
             
             output.print(" ".join(config_parts) + "\n")
         else:
-            # Fallback for terminals without color support
+            # Fallback for basic terminals
             api_status = "with API key" if vt_api_key else "without API key"
             print(f"Current configuration: Running {api_status} and {output_mode} output format.\n")
     except Exception as e:
@@ -413,7 +418,7 @@ def run_analysis(file_path, vt_api_key):
             if output_mode == "defanged":
                 if COMPATIBLE_OUTPUT:
                     output.print("[blue bold]DEFANGED OUTPUT MODE:[/blue bold] [green]URLs and IPs are displayed in safe format[/green]")
-                    print()
+                    output.print("")  # Use output.print for blank line
                 else:
                     print("DEFANGED OUTPUT MODE: URLs and IPs are displayed in safe format")
                     print()
@@ -438,7 +443,7 @@ def run_analysis(file_path, vt_api_key):
             subject = msg_obj.get('Subject', 'No Subject') if msg_obj else 'No Subject'
             if COMPATIBLE_OUTPUT:
                 output.print(f"Subject: {output.escape(str(subject))}")
-                print()
+                output.print("")  # Use output.print for blank line
             else:
                 print(f"Subject: {subject}")
                 print()
@@ -584,7 +589,7 @@ def handle_output_settings():
             print(f"Error in output settings menu: {e}")
 
 def view_collapsed_urls():
-    """Display detailed URLs from the last analysis with working defanging."""
+    """Display detailed URLs with COMPLETELY FIXED defanging and universal output."""
     global last_url_analysis_results
     
     if not last_url_analysis_results:
@@ -595,56 +600,68 @@ def view_collapsed_urls():
         return
     
     try:
-        from builtins import print as builtin_print
-        
-        # Use the same formatting function as other sections
+        # Use the universal output system throughout - ZERO regular print() calls!
         print_section_header("COMPLETE URL BREAKDOWN")
         
         for i, result in enumerate(last_url_analysis_results):
             # Add spacing between domains (but not before the first one)
             if i > 0:
-                builtin_print()
+                if COMPATIBLE_OUTPUT:
+                    output.print("")  # Use output.print for blank lines
+                else:
+                    print()
             
             domain = result['domain']
             urls = result['urls']
             verdict = result['verdict']
             
             # Color code the verdict for header
-            if COMPATIBLE_OUTPUT:
-                if verdict == "malicious":
-                    verdict_display = "[red]MALICIOUS[/red]"
-                elif verdict == "suspicious":
-                    verdict_display = "[orange3]SUSPICIOUS[/orange3]"
-                elif verdict == "benign":
-                    verdict_display = "[green]BENIGN[/green]"
-                else:
-                    verdict_display = "[orange3]UNCHECKED[/orange3]"
+            if verdict == "malicious":
+                verdict_display = "[red]MALICIOUS[/red]"
+            elif verdict == "suspicious":
+                verdict_display = "[orange3]SUSPICIOUS[/orange3]"
+            elif verdict == "benign":
+                verdict_display = "[green]BENIGN[/green]"
             else:
-                verdict_display = verdict.upper()
+                verdict_display = "[orange3]UNCHECKED[/orange3]"
             
-            # Apply working defanging to domain
-            display_domain = simple_defang(domain)
+            # Apply defanging to domain using centralized function
+            display_domain = apply_defanging(domain)
+            escaped_domain = output.escape(display_domain) if COMPATIBLE_OUTPUT else display_domain
             
             # Display domain header with verdict and count
-            if COMPATIBLE_OUTPUT:
-                output.print(f"{output.escape(display_domain)} - {verdict_display} ({len(urls)} URL{'s' if len(urls) != 1 else ''}):")
-            else:
-                builtin_print(f"{display_domain} - {verdict_display} ({len(urls)} URL{'s' if len(urls) != 1 else ''}):")
+            header_text = f"{escaped_domain} - {verdict_display} ({len(urls)} URL{'s' if len(urls) != 1 else ''}):"
             
+            if COMPATIBLE_OUTPUT:
+                output.print(header_text)  # This will process the [green]BENIGN[/green] markup!
+            else:
+                # For non-compatible terminals, strip markup manually
+                clean_header = re.sub(r'\[/?[^\]]*\]', '', header_text)
+                print(clean_header)
+            
+            # Display each URL with defanging
             for j, url in enumerate(urls, 1):
-                # Apply working defanging to each individual URL
-                display_url = simple_defang(url)
+                # Apply defanging to each individual URL
+                display_url = apply_defanging(url)
+                escaped_url = output.escape(display_url) if COMPATIBLE_OUTPUT else display_url
+                
+                url_line = f"  {j:2}. {escaped_url}"
                 if COMPATIBLE_OUTPUT:
-                    escaped_url = output.escape(display_url)
-                    builtin_print(f"  {j:2}. {escaped_url}")
+                    output.print(url_line)
                 else:
-                    builtin_print(f"  {j:2}. {display_url}")
+                    print(f"  {j:2}. {display_url}")
         
         # Summary
         total_urls = sum(len(r['urls']) for r in last_url_analysis_results)
-        builtin_print(f"\nTotal: {total_urls} URL{'s' if total_urls != 1 else ''} across {len(last_url_analysis_results)} domain{'s' if len(last_url_analysis_results) != 1 else ''}")
+        total_domains = len(last_url_analysis_results)
+        summary_text = f"Total: {total_urls} URL{'s' if total_urls != 1 else ''} across {total_domains} domain{'s' if total_domains != 1 else ''}"
         
-        # Simple return prompt
+        if COMPATIBLE_OUTPUT:
+            output.print(f"\n{summary_text}")
+        else:
+            print(f"\n{summary_text}")
+        
+        # Return prompt
         try:
             safe_input("\nPress Enter to return to main menu...")
         except:

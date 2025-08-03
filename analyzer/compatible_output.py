@@ -1,23 +1,15 @@
 """
-Compatible output module for phishalyzer.
-Falls back from Rich to simple colors for maximum terminal compatibility.
+Universal output module for phishalyzer.
+Provides consistent formatting and colors across all terminals without any external dependencies.
 """
 
 import os
 import sys
 import re
 
-# Try to import Rich first
-try:
-    from rich import print as rich_print
-    from rich.text import Text
-    from rich.markup import escape as rich_escape
-    RICH_AVAILABLE = True
-except ImportError:
-    RICH_AVAILABLE = False
-
-# Fallback color system using ANSI codes
+# ANSI Color and Style Codes
 class Colors:
+    # Reset
     RESET = '\033[0m'
     
     # Basic colors
@@ -46,8 +38,8 @@ class Colors:
     UNDERLINE = '\033[4m'
 
 def supports_color():
-    """Check if terminal supports colors"""
-    # Respect NO_COLOR environment variable
+    """Detect if terminal supports ANSI colors"""
+    # Respect NO_COLOR environment variable (universal standard)
     if os.getenv('NO_COLOR'):
         return False
     
@@ -59,52 +51,48 @@ def supports_color():
     if os.getenv('CLICOLOR') == '0':
         return False
     
-    # Check if we're in a TTY
+    # Windows Command Prompt detection
+    if os.name == 'nt':
+        # Modern Windows Terminal supports colors
+        if os.getenv('WT_SESSION'):
+            return True
+        # ConEmu and similar
+        if os.getenv('ConEmuPID'):
+            return True
+        # Try to enable ANSI on Windows 10+
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
+            return True
+        except Exception:
+            pass
+        # Fallback for older Windows
+        return False
+    
+    # Unix-like systems
     if hasattr(sys.stdout, 'isatty') and sys.stdout.isatty():
         term = os.getenv('TERM', '').lower()
-        # Git Bash usually sets TERM to xterm or xterm-256color
-        if any(x in term for x in ['xterm', 'color', 'ansi', 'linux', 'screen']):
+        if any(x in term for x in ['xterm', 'color', 'ansi', 'linux', 'screen', 'tmux']):
             return True
-        # Windows Terminal, ConEmu, etc.
-        if os.getenv('WT_SESSION') or os.getenv('ConEmuPID'):
+        # Git Bash often reports as xterm
+        if 'xterm' in term or term.startswith('screen'):
             return True
-        # Basic fallback for unknown terminals
+        # Basic fallback
         if term and term != 'dumb':
             return True
     
     return False
 
-class CompatibleOutput:
+class UniversalOutput:
     """
-    Output class that uses Rich when available, falls back to simple colors.
+    Universal output class that works consistently across all terminals.
+    No external dependencies - only uses built-in Python and ANSI codes.
     """
     
     def __init__(self):
-        self.use_rich = RICH_AVAILABLE
         self.use_colors = supports_color()
-        self._markup_pattern = re.compile(r'\[/?([^\]]*)\]')
-    
-    def print(self, *args, **kwargs):
-        """Compatible print function"""
-        if self.use_rich:
-            rich_print(*args, **kwargs)
-        else:
-            # Convert args to strings and process markup
-            processed_args = []
-            for arg in args:
-                text = str(arg)
-                if self.use_colors:
-                    text = self._convert_markup_to_ansi(text)
-                else:
-                    text = self._strip_markup(text)
-                processed_args.append(text)
-            
-            print(*processed_args, **kwargs)
-    
-    def _convert_markup_to_ansi(self, text):
-        """Convert Rich markup to ANSI codes"""
-        # Rich markup to ANSI mapping
-        markup_to_ansi = {
+        self._color_map = {
             # Basic colors
             'red': Colors.RED,
             'green': Colors.GREEN,
@@ -115,115 +103,117 @@ class CompatibleOutput:
             'white': Colors.WHITE,
             'black': Colors.BLACK,
             
-            # Bright colors
+            # Bright variants
             'bright_red': Colors.BRIGHT_RED,
             'bright_green': Colors.BRIGHT_GREEN,
             'bright_yellow': Colors.BRIGHT_YELLOW,
             'bright_blue': Colors.BRIGHT_BLUE,
             'bright_magenta': Colors.BRIGHT_MAGENTA,
             'bright_cyan': Colors.BRIGHT_CYAN,
+            'bright_white': Colors.BRIGHT_WHITE,
+            'bright_black': Colors.BRIGHT_BLACK,
             
-            # Special mappings for your specific use cases
+            # Aliases for compatibility
             'orange3': Colors.BRIGHT_YELLOW,  # Orange approximation
+            'orange': Colors.YELLOW,
             
             # Styles
             'bold': Colors.BOLD,
             'dim': Colors.DIM,
             'underline': Colors.UNDERLINE,
         }
-        
-        # Stack to track open tags
-        tag_stack = []
-        result = []
-        last_end = 0
-        
-        for match in self._markup_pattern.finditer(text):
-            # Add text before the tag
-            result.append(text[last_end:match.start()])
-            
-            tag_content = match.group(1)
-            
-            if tag_content.startswith('/'):
-                # Closing tag
-                if tag_stack:
-                    tag_stack.pop()
-                    # Reset and reapply remaining styles
-                    result.append(Colors.RESET)
-                    for tag in tag_stack:
-                        if tag in markup_to_ansi:
-                            result.append(markup_to_ansi[tag])
-            else:
-                # Opening tag - handle combinations like "blue bold"
-                tag_parts = tag_content.split()
-                valid_tags = []
-                
-                for part in tag_parts:
-                    if part in markup_to_ansi:
-                        valid_tags.append(part)
-                        result.append(markup_to_ansi[part])
-                
-                if valid_tags:
-                    tag_stack.extend(valid_tags)
-            
-            last_end = match.end()
-        
-        # Add remaining text
-        result.append(text[last_end:])
-        
-        # Add final reset if we have any open tags
-        if tag_stack:
-            result.append(Colors.RESET)
-        
-        return ''.join(result)
     
-    def _strip_markup(self, text):
-        """Remove all Rich markup for plain text output"""
-        return self._markup_pattern.sub('', text)
+    def colorize(self, text, color):
+        """Apply color to text if colors are supported"""
+        if not self.use_colors:
+            return text
+        
+        if color in self._color_map:
+            return f"{self._color_map[color]}{text}{Colors.RESET}"
+        return text
     
-    def text(self, content, style=None):
-        """Create a text object (Rich-compatible)"""
-        if self.use_rich:
-            return Text(content, style=style)
-        else:
-            # Return formatted text for non-Rich environments
-            if style and self.use_colors:
-                # Simple style mapping
-                style_map = {
-                    'red': Colors.RED,
-                    'green': Colors.GREEN,
-                    'yellow': Colors.YELLOW,
-                    'blue': Colors.BLUE,
-                    'magenta': Colors.MAGENTA,
-                    'orange3': Colors.BRIGHT_YELLOW,
-                    'bold': Colors.BOLD,
-                    'blue bold': Colors.BLUE + Colors.BOLD,
-                    'red bold': Colors.RED + Colors.BOLD,
-                    'green bold': Colors.GREEN + Colors.BOLD,
-                    'yellow bold': Colors.YELLOW + Colors.BOLD,
-                }
-                
-                if style in style_map:
-                    return f"{style_map[style]}{content}{Colors.RESET}"
+    def _process_markup_simple(self, text):
+        """Simple, reliable markup processing that actually works"""
+        if not isinstance(text, str):
+            text = str(text)
+        
+        if not self.use_colors:
+            # Strip all markup tags for plain text
+            text = re.sub(r'\[/?[^\]]*\]', '', text)
+            return text
+        
+        # Process markup tags one by one, preventing nesting
+        # Handle [color]text[/color] patterns
+        def replace_color_tag(match):
+            full_match = match.group(0)
             
+            # Extract the pattern: [color]content[/color] or [color]content[/]
+            color_match = re.match(r'\[([^\]]+)\](.*?)\[/[^\]]*\]', full_match)
+            if not color_match:
+                return full_match  # Return unchanged if pattern doesn't match
+            
+            color_spec = color_match.group(1).strip().lower()
+            content = color_match.group(2)
+            
+            # Skip if content already has ANSI codes (prevent double-coloring)
+            if '\033[' in content:
+                return content
+            
+            # Handle compound styles like "blue bold"
+            styles = color_spec.split()
+            style_codes = []
+            
+            for style in styles:
+                if style in self._color_map:
+                    style_codes.append(self._color_map[style])
+            
+            if style_codes:
+                return f"{''.join(style_codes)}{content}{Colors.RESET}"
             return content
+        
+        # Apply the replacement using a comprehensive pattern
+        # This handles both [color]text[/color] and [color]text[/]
+        markup_pattern = re.compile(r'\[([^\]]+)\](.*?)\[/[^\]]*\]')
+        
+        # Keep applying until no more matches (but prevent infinite loops)
+        max_iterations = 10
+        iteration = 0
+        
+        while markup_pattern.search(text) and iteration < max_iterations:
+            text = markup_pattern.sub(replace_color_tag, text)
+            iteration += 1
+        
+        return text
+    
+    def print(self, text="", **kwargs):
+        """Universal print function with reliable markup support"""
+        processed_text = self._process_markup_simple(str(text))
+        print(processed_text, **kwargs)
     
     def escape(self, text):
-        """Escape text for safe display"""
-        if self.use_rich:
-            return rich_escape(text)
-        else:
-            # Simple escaping for non-Rich environments
-            # Just ensure it's a string and handle basic problematic characters
+        """Escape potentially problematic characters while preserving defanged brackets"""
+        if not isinstance(text, str):
             text = str(text)
-            # Replace characters that might cause issues in terminals
-            text = text.replace('\x00', '\\x00')  # Null bytes
-            text = text.replace('\x1b', '\\x1b')  # Escape sequences
-            return text
+        
+        # Handle basic problematic characters but preserve defanged brackets
+        # Don't mess with [.] and [:] as they're legitimate defanged content
+        text = text.replace('\x00', '\\x00')  # Null bytes
+        text = text.replace('\x1b', '\\x1b')  # Escape sequences (if not ours)
+        
+        # Handle other control characters
+        text = ''.join(char if ord(char) >= 32 or char in '\t\n\r' else f'\\x{ord(char):02x}' for char in text)
+        
+        return text
+    
+    @property
+    def use_rich(self):
+        """Compatibility property - always False"""
+        return False
 
-# Global instance
-output = CompatibleOutput()
+# Create global instance
+output = UniversalOutput()
 
-# Convenience functions for common phishalyzer patterns
+# Convenience functions for consistent phishalyzer output
 def print_header(title):
     """Print a standardized section header"""
     total_width = 50
@@ -233,8 +223,20 @@ def print_header(title):
     right_padding = padding_needed - left_padding
     
     header_line = "=" * left_padding + title_with_spaces + "=" * right_padding
-    
     output.print(f"\n\n[magenta]{header_line}[/magenta]\n")
+
+def print_status(text, status_type="info"):
+    """Print status message with appropriate coloring"""
+    color_map = {
+        "info": "blue",
+        "warning": "yellow", 
+        "error": "red",
+        "success": "green"
+    }
+    
+    color = color_map.get(status_type, "blue")
+    escaped_text = output.escape(str(text))
+    output.print(f"[{color}]{escaped_text}[/{color}]")
 
 def print_verdict(text, verdict):
     """Print text with verdict-based coloring"""
@@ -247,22 +249,11 @@ def print_verdict(text, verdict):
     }
     
     color = verdict_colors.get(verdict.lower(), "white")
-    output.print(f"[{color}]{text.upper()}[/{color}]")
-
-def print_status(text, status_type="info"):
-    """Print status message with appropriate coloring"""
-    color_map = {
-        "info": "blue",
-        "warning": "yellow", 
-        "error": "red",
-        "success": "green"
-    }
-    
-    color = color_map.get(status_type, "blue")
-    output.print(f"[{color}]{text}[/{color}]")
+    escaped_text = output.escape(str(text))
+    output.print(f"[{color}]{escaped_text.upper()}[/{color}]")
 
 def print_ip_result(ip, country, verdict, comment, defang_func=None):
-    """Display IP analysis result with compatible formatting"""
+    """Display IP analysis result with consistent formatting"""
     # Apply defanging if function provided
     display_ip = defang_func(ip) if defang_func else ip
     
@@ -274,13 +265,12 @@ def print_ip_result(ip, country, verdict, comment, defang_func=None):
     }
     
     verdict_color = verdict_colors.get(verdict, "orange3")
-    verdict_text = f"[{verdict_color}]{verdict.upper()}[/{verdict_color}]"
     
-    escaped_ip = output.escape(display_ip)
-    escaped_country = output.escape(country)
-    escaped_comment = output.escape(comment)
+    escaped_ip = output.escape(str(display_ip))
+    escaped_country = output.escape(str(country))
+    escaped_comment = output.escape(str(comment))
     
-    output.print(f"IP: [yellow]{escaped_ip}[/yellow] ({escaped_country}) - Verdict: {verdict_text} ({escaped_comment})")
+    output.print(f"IP: [yellow]{escaped_ip}[/yellow] ({escaped_country}) - Verdict: [{verdict_color}]{verdict.upper()}[/{verdict_color}] ({escaped_comment})")
 
 def print_attachment_header(index):
     """Display attachment header"""
@@ -302,7 +292,7 @@ def print_hash(file_hash, verdict="unchecked"):
     }
     
     hash_color = hash_colors.get(verdict, "orange3")
-    escaped_hash = output.escape(file_hash)
+    escaped_hash = output.escape(str(file_hash))
     output.print(f"  SHA256: [{hash_color}]{escaped_hash}[/{hash_color}]")
 
 def print_risk_level(risk_level, reason):
@@ -314,9 +304,9 @@ def print_risk_level(risk_level, reason):
         "unknown": "orange3"
     }
     
-    risk_color = risk_colors.get(risk_level, "white")
-    escaped_reason = output.escape(reason)
-    output.print(f"  Risk Level: [{risk_color}]{risk_level.upper()}[/{risk_color}] ({escaped_reason})")
+    risk_color = risk_colors.get(str(risk_level).lower(), "white")
+    escaped_reason = output.escape(str(reason))
+    output.print(f"  Risk Level: [{risk_color}]{str(risk_level).upper()}[/{risk_color}] ({escaped_reason})")
 
 def print_vt_verdict(verdict, comment):
     """Display VirusTotal verdict with appropriate coloring"""
@@ -328,37 +318,34 @@ def print_vt_verdict(verdict, comment):
         "unchecked": "orange3"
     }
     
-    vt_color = vt_colors.get(verdict, "orange3")
-    escaped_comment = output.escape(comment)
-    output.print(f"  VirusTotal: [{vt_color}]{verdict.upper()}[/{vt_color}] ({escaped_comment})")
+    vt_color = vt_colors.get(str(verdict).lower(), "orange3")
+    escaped_comment = output.escape(str(comment))
+    output.print(f"  VirusTotal: [{vt_color}]{str(verdict).upper()}[/{vt_color}] ({escaped_comment})")
 
 def create_colored_text(text, color="white", bold=False):
-    """Create colored text with optional bold styling"""
-    style_parts = [color]
+    """Create colored text - simplified for compatibility"""
+    escaped_text = output.escape(str(text))
+    
     if bold:
-        style_parts.append("bold")
-    
-    style = " ".join(style_parts)
-    
-    if output.use_rich:
-        return Text(text, style=style)
+        return f"[{color} bold]{escaped_text}[/{color} bold]"
     else:
-        return output.text(text, style)
+        return f"[{color}]{escaped_text}[/{color}]"
 
-# Test function
+# Test function for verification
 def test_compatibility():
-    """Test the compatibility system"""
-    print(f"Rich available: {RICH_AVAILABLE}")
-    print(f"Colors supported: {output.use_colors}")
+    """Test the universal output system"""
+    print(f"Color support detected: {output.use_colors}")
     print(f"Terminal: {os.getenv('TERM', 'unknown')}")
+    print(f"Platform: {os.name}")
     print()
     
     print_header("Test Section")
     
-    print_verdict("MALICIOUS CONTENT", "malicious")
-    print_verdict("SUSPICIOUS CONTENT", "suspicious") 
-    print_verdict("BENIGN CONTENT", "benign")
-    print_verdict("UNCHECKED CONTENT", "unchecked")
+    output.print("[red]Red text test[/red]")
+    output.print("[green]Green text test[/green]")
+    output.print("[blue bold]Blue bold text test[/blue bold]")
+    output.print("[yellow]Yellow text test[/yellow]")
+    output.print("[magenta]Magenta text test[/magenta]")
     
     print()
     print_status("This is an info message", "info")
@@ -367,15 +354,13 @@ def test_compatibility():
     print_status("This is success", "success")
     
     print()
-    print_ip_result("192.168.1.1", "Private", "unchecked", "Private IP address")
-    print_ip_result("8.8.8.8", "United States", "benign", "Google DNS server")
+    print_verdict("MALICIOUS CONTENT", "malicious")
+    print_verdict("SUSPICIOUS CONTENT", "suspicious") 
+    print_verdict("BENIGN CONTENT", "benign")
     
     print()
-    print_attachment_header(1)
-    print_filename("suspicious_file.exe")
-    print_hash("abc123def456", "malicious")
-    print_risk_level("high", "Executable file type")
-    print_vt_verdict("malicious", "5 vendors flagged as malicious")
+    print_ip_result("192.168.1.1", "Private", "unchecked", "Private IP address")
+    print_ip_result("8.8.8.8", "United States", "benign", "Google DNS server")
 
 if __name__ == "__main__":
     test_compatibility()

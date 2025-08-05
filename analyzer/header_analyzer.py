@@ -10,21 +10,72 @@ except ImportError:
 
 from . import defanger
 
-# IMPROVED IP patterns - much more precise to avoid timestamp conflicts
-IPV4_PATTERN = re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b')
-DEFANGED_IPV4_PATTERN = re.compile(r'\b(?:\d{1,3}\[\.\]){3}\d{1,3}\b')
+# COMPREHENSIVE IP patterns that handle all real-world cases
+IPV4_PATTERN = re.compile(r'\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b')
+DEFANGED_IPV4_PATTERN = re.compile(r'\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\[\.\]){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b')
 
-# IMPROVED IPv6 patterns - ordered by specificity
-IPV6_LOOPBACK_PATTERN = re.compile(r'\b::1\b')  # Most specific: IPv6 loopback
-IPV6_COMPRESSED_PATTERN = re.compile(r'\b[0-9a-fA-F]+::[0-9a-fA-F:]*\b')  # Has compression (::)
-IPV6_FULL_PATTERN = re.compile(r'\b(?:[0-9a-fA-F]{1,4}:){3,7}[0-9a-fA-F]{1,4}\b')  # Full format
-DEFANGED_IPV6_PATTERN = re.compile(r'\b[0-9a-fA-F]{1,4}(?:\[:\][0-9a-fA-F]{0,4}){2,7}\b')  # Defanged
-DEFANGED_IPV6_COMPRESSED = re.compile(r'\b[0-9a-fA-F]*\[::\][0-9a-fA-F:]*\b')  # Defanged with compression
+# COMPREHENSIVE IPv6 patterns - handles all variations with proper boundaries
+IPV6_PATTERNS = [
+    # IPv6 loopback (::1) - highest priority
+    re.compile(r'\b::1\b'),
+    
+    # IPv6 with compression - comprehensive pattern: 2603:10a6:e10:39::20
+    re.compile(r'\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4}){1,6}::[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4}){0,5}\b'),
+    
+    # IPv6 with compression at end: 2603:10a6:e10:39::
+    re.compile(r'\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4}){1,6}::\b'),
+    
+    # IPv6 with compression at start: ::2603:10a6:e10:39
+    re.compile(r'\b::[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4}){1,6}\b'),
+    
+    # Full IPv6 (no compression): 2603:10a6:e10:39:cafe:beef:1234:5678
+    re.compile(r'\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b'),
+    
+    # 6-segment IPv6: 2603:10a6:e10:39:cafe:d6
+    re.compile(r'\b(?:[0-9a-fA-F]{1,4}:){5}[0-9a-fA-F]{1,4}\b'),
+    
+    # 4-segment IPv6: 2603:10a6:e10:39 (be careful not to match timestamps)
+    re.compile(r'\b(?:[0-9a-fA-F]{2,4}:){3}[0-9a-fA-F]{2,4}\b')
+]
 
-# Precise timestamp pattern (unchanged - works well)
-FULL_TIMESTAMP_PATTERN = re.compile(
-    r'\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun),?\s+\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}\s+\d{2}:\d{2}:\d{2}\s*(?:[-+]\d{4})?\b'
-)
+# DEFANGED IPv6 patterns - FIXED to capture complete addresses
+DEFANGED_IPV6_PATTERNS = [
+    # Defanged IPv6 loopback: [::]1
+    re.compile(r'\b\[::\]1\b'),
+    
+    # Defanged IPv6 with compression: 2603[:]10a6[:]e10[:]39[::]20
+    re.compile(r'\b[0-9a-fA-F]{1,4}(?:\[:\][0-9a-fA-F]{1,4}){1,6}\[::\][0-9a-fA-F]{1,4}(?:\[:\][0-9a-fA-F]{1,4}){0,5}\b'),
+    
+    # Defanged full IPv6: 2603[:]10a6[:]e10[:]39[:]cafe[:]beef[:]1234[:]5678
+    re.compile(r'\b(?:[0-9a-fA-F]{1,4}\[:\]){7}[0-9a-fA-F]{1,4}\b'),
+    
+    # Defanged 6-segment: 2603[:]10a6[:]e10[:]39[:]cafe[:]d6
+    re.compile(r'\b(?:[0-9a-fA-F]{1,4}\[:\]){5}[0-9a-fA-F]{1,4}\b'),
+    
+    # Defanged 5-segment: 2603[:]10a6[:]e10[:]39[:]cafe
+    re.compile(r'\b(?:[0-9a-fA-F]{1,4}\[:\]){4}[0-9a-fA-F]{1,4}\b'),
+    
+    # Defanged 4-segment: 2603[:]10a6[:]e10[:]39 - FIXED boundary
+    re.compile(r'\b(?:[0-9a-fA-F]{2,4}\[:\]){3}[0-9a-fA-F]{1,4}\b'),
+    
+    # Defanged 3-segment: 2603[:]10a6[:]e10
+    re.compile(r'\b(?:[0-9a-fA-F]{2,4}\[:\]){2}[0-9a-fA-F]{2,4}\b')
+]
+
+# PRECISE timestamp patterns - FIXED to capture complete timestamps
+TIMESTAMP_PATTERNS = [
+    # Full timestamp with day: Thu, 27 Jul 2023 15:06:10 +0000
+    re.compile(r'\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun),?\s+\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}\s+\d{2}:\d{2}:\d{2}\s+(?:[-+]\d{4}|GMT|UTC|[A-Z]{2,4})\b'),
+    
+    # Date without day: 27 Jul 2023 15:06:10 +0000
+    re.compile(r'\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}\s+\d{2}:\d{2}:\d{2}\s+(?:[-+]\d{4}|GMT|UTC|[A-Z]{2,4})\b'),
+    
+    # Time with timezone: 15:06:10 +0000
+    re.compile(r'\b\d{2}:\d{2}:\d{2}\s+(?:[-+]\d{4}|GMT|UTC|[A-Z]{2,4})\b'),
+    
+    # Just timezone: +0000, GMT, UTC
+    re.compile(r'\b(?:[-+]\d{4}|GMT|UTC|PST|PDT|EST|EDT|CST|CDT|MST|MDT)\b')
+]
 
 # Authentication result terms
 FAILURE_TERMS = {
@@ -68,10 +119,62 @@ def apply_defanging_if_enabled(text):
     except Exception:
         return str(text)
 
+def highlight_hops(text):
+    """
+    Specialized highlighting for received hops that handles IP addresses and timestamps correctly.
+    Order: Apply defanging → Highlight timestamps (blue) → Highlight IPs (yellow)
+    
+    This function returns ANSI color codes directly, not markup tags.
+    """
+    try:
+        if not isinstance(text, str):
+            text = str(text)
+        
+        # Step 1: Apply defanging first
+        processed_text = apply_defanging_if_enabled(text)
+        
+        # Step 2: Highlight timestamps FIRST (blue) - complete timestamps including timezone
+        def make_timestamp_blue(match):
+            timestamp_text = match.group(0)
+            # Check if already colored
+            if '\033[' not in timestamp_text:
+                return f"\033[34m{timestamp_text}\033[0m"  # Blue ANSI
+            return timestamp_text
+        
+        # Apply all timestamp patterns
+        for timestamp_pattern in TIMESTAMP_PATTERNS:
+            processed_text = re.sub(timestamp_pattern, make_timestamp_blue, processed_text)
+        
+        # Step 3: Highlight IP addresses SECOND (yellow) - complete addresses
+        def make_ip_yellow(match):
+            ip_text = match.group(0)
+            # Check if already colored (avoid double-coloring)
+            if '\033[' not in ip_text:
+                return f"\033[33m{ip_text}\033[0m"  # Yellow ANSI
+            return ip_text
+        
+        # Apply IPv4 patterns
+        processed_text = re.sub(IPV4_PATTERN, make_ip_yellow, processed_text)
+        processed_text = re.sub(DEFANGED_IPV4_PATTERN, make_ip_yellow, processed_text)
+        
+        # Apply all IPv6 patterns (both regular and defanged) - ORDER MATTERS
+        # Apply most specific patterns first
+        for ipv6_pattern in IPV6_PATTERNS:
+            processed_text = re.sub(ipv6_pattern, make_ip_yellow, processed_text)
+        
+        for defanged_ipv6_pattern in DEFANGED_IPV6_PATTERNS:
+            processed_text = re.sub(defanged_ipv6_pattern, make_ip_yellow, processed_text)
+        
+        return processed_text
+        
+    except Exception as e:
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Warning: Error in hop highlighting: {e}", "warning")
+        return str(text)
+
 def smart_highlight_text(text, content_type="basic"):
     """
-    FIXED smart highlighting with improved IPv6 patterns that actually work.
-    Order: Defang → Color auth terms → Highlight IPs (improved) → Highlight timestamps
+    Smart highlighting for different content types.
     """
     try:
         if not isinstance(text, str):
@@ -102,8 +205,8 @@ def smart_highlight_text(text, content_type="basic"):
             
             processed_text = " ".join(colored_words)
         
-        # Step 3: Highlight ALL IP addresses with IMPROVED patterns (skip for received hops)
-        if content_type != "received":
+        # Step 3: Highlight IP addresses for non-hop content
+        if content_type != "hop":
             def make_ip_yellow(match):
                 ip_text = match.group(0)
                 # Avoid double-coloring already processed authentication terms
@@ -111,41 +214,16 @@ def smart_highlight_text(text, content_type="basic"):
                     return f"[yellow]{ip_text}[/yellow]"
                 return ip_text
             
-            # IPv4 (regular and defanged) - unchanged, these work fine
+            # Apply IPv4 patterns
             processed_text = re.sub(IPV4_PATTERN, make_ip_yellow, processed_text)
             processed_text = re.sub(DEFANGED_IPV4_PATTERN, make_ip_yellow, processed_text)
             
-            # IMPROVED IPv6 patterns - applied in order of specificity
+            # Apply IPv6 patterns
+            for ipv6_pattern in IPV6_PATTERNS:
+                processed_text = re.sub(ipv6_pattern, make_ip_yellow, processed_text)
             
-            # 1. IPv6 loopback (::1) - most specific first
-            processed_text = re.sub(IPV6_LOOPBACK_PATTERN, make_ip_yellow, processed_text)
-            
-            # 2. IPv6 with compression (contains ::) - but not just ::1
-            processed_text = re.sub(IPV6_COMPRESSED_PATTERN, make_ip_yellow, processed_text)
-            
-            # 3. Full IPv6 (no compression) - more flexible length matching
-            processed_text = re.sub(IPV6_FULL_PATTERN, make_ip_yellow, processed_text)
-            
-            # 4. Defanged IPv6 (simple format)
-            processed_text = re.sub(DEFANGED_IPV6_PATTERN, make_ip_yellow, processed_text)
-            
-            # 5. Defanged IPv6 with compression
-            processed_text = re.sub(DEFANGED_IPV6_COMPRESSED, make_ip_yellow, processed_text)
-        
-        # Step 4: Highlight timestamps (skip for received hops)
-        if content_type == "received_skip_highlighting":  # Changed condition to never match
-            def make_timestamp_blue(match):
-                timestamp_text = match.group(0)
-                # Prevent double-coloring - avoid areas already processed
-                if '[blue]' not in timestamp_text and '[yellow]' not in timestamp_text and '\033[' not in timestamp_text:
-                    return f"[blue]{timestamp_text}[/blue]"
-                return timestamp_text
-            
-            processed_text = re.sub(FULL_TIMESTAMP_PATTERN, make_timestamp_blue, processed_text)
-            
-            # Also highlight timezone markers like (UTC), (PDT)
-            timezone_pattern = re.compile(r'\([A-Z]{2,4}\)')
-            processed_text = re.sub(timezone_pattern, make_timestamp_blue, processed_text)
+            for defanged_ipv6_pattern in DEFANGED_IPV6_PATTERNS:
+                processed_text = re.sub(defanged_ipv6_pattern, make_ip_yellow, processed_text)
         
         return processed_text
         
@@ -248,14 +326,16 @@ def analyze_headers(msg_obj: Message):
                         return f'[yellow]{ip_text}[/yellow]'
                     return ip_text
                 
-                # Apply all IP patterns
+                # Apply IPv4 patterns
                 highlighted_auth = re.sub(IPV4_PATTERN, safe_ip_highlight_auth, highlighted_auth)
                 highlighted_auth = re.sub(DEFANGED_IPV4_PATTERN, safe_ip_highlight_auth, highlighted_auth)
-                highlighted_auth = re.sub(IPV6_LOOPBACK_PATTERN, safe_ip_highlight_auth, highlighted_auth)
-                highlighted_auth = re.sub(IPV6_COMPRESSED_PATTERN, safe_ip_highlight_auth, highlighted_auth)
-                highlighted_auth = re.sub(IPV6_FULL_PATTERN, safe_ip_highlight_auth, highlighted_auth)
-                highlighted_auth = re.sub(DEFANGED_IPV6_PATTERN, safe_ip_highlight_auth, highlighted_auth)
-                highlighted_auth = re.sub(DEFANGED_IPV6_COMPRESSED, safe_ip_highlight_auth, highlighted_auth)
+                
+                # Apply IPv6 patterns
+                for ipv6_pattern in IPV6_PATTERNS:
+                    highlighted_auth = re.sub(ipv6_pattern, safe_ip_highlight_auth, highlighted_auth)
+                
+                for defanged_ipv6_pattern in DEFANGED_IPV6_PATTERNS:
+                    highlighted_auth = re.sub(defanged_ipv6_pattern, safe_ip_highlight_auth, highlighted_auth)
                 
                 if COMPATIBLE_OUTPUT:
                     output.print(f"[blue]Authentication-Results:[/blue] {highlighted_auth}")
@@ -297,11 +377,12 @@ def analyze_headers(msg_obj: Message):
                 if hop_headers:
                     for i, hop in enumerate(hop_headers, 1):
                         try:
-                            # Apply only defanging, NO color highlighting
-                            defanged_hop = apply_defanging_if_enabled(str(hop))
+                            # Apply hop-specific highlighting (IPs in yellow, timestamps in blue)
+                            highlighted_hop = highlight_hops(str(hop))
+                            
                             hops.append({
                                 'index': i,
-                                'content': defanged_hop,
+                                'content': highlighted_hop,  # Store pre-highlighted content
                                 'raw': str(hop)
                             })
                         except Exception as e:

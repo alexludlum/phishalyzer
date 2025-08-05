@@ -774,12 +774,16 @@ def view_received_hops():
                 index = hop.get('index', '?')
                 content = hop.get('content', 'No content')
                 
-                # Display with only blue hop numbers - no other highlighting
+                # Content already has ANSI color codes - display directly
                 if COMPATIBLE_OUTPUT:
-                    escaped_content = output.escape(content)
-                    output.print(f"[blue][{index}][/blue] {escaped_content}")
+                    # Create the blue hop number using output system, then combine with pre-colored content
+                    hop_number = output.colorize(f"[{index}]", "blue")
+                    print(f"{hop_number} {content}")  # Use regular print since content has ANSI codes
                 else:
-                    print(f"[{index}] {content}")
+                    # For non-compatible terminals, strip all color codes
+                    import re
+                    clean_content = re.sub(r'\033\[[0-9;]*m', '', content)
+                    print(f"[{index}] {clean_content}")
                     
             except Exception as e:
                 print(f"  [?] Error displaying hop: {e}")

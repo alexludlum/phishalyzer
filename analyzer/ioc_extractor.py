@@ -83,65 +83,26 @@ def safe_is_private_ip(ip):
     except Exception:
         return False
 
-def safe_get_geoip_country(ip):
-    """Safely get country for IP with error handling and timeout."""
-    if not ip:
-        return "Undefined"
-    
+def extract_country_from_vt_response(vt_response_data):
+    """Extract country from existing VirusTotal response."""
     try:
-        # Check if it's a private IP first
-        if safe_is_private_ip(ip):
-            return "Private"
+        if not vt_response_data:
+            return "Undefined"
         
-        response = requests.get(
-            f"https://ipapi.co/{ip}/country_name/", 
-            timeout=REQUEST_TIMEOUT
-        )
+        country = vt_response_data.get("data", {}).get("attributes", {}).get("country", "")
+        if country:
+            return country
         
-        if response.status_code == 200:
-            country = response.text.strip()
-            if country and country.lower() not in ['undefined', 'none', '']:
-                return country
-        elif response.status_code == 429:
-            escaped_ip = output.escape(ip) if COMPATIBLE_OUTPUT else ip
-            if COMPATIBLE_OUTPUT:
-                print_status(f"Rate limited for GeoIP lookup of {escaped_ip}", "warning")
-            else:
-                print(f"Rate limited for GeoIP lookup of {escaped_ip}")
-            return "Rate Limited"
+        # Try alternative location fields
+        as_owner = vt_response_data.get("data", {}).get("attributes", {}).get("as_owner", "")
+        if as_owner and any(country_indicator in as_owner.upper() for country_indicator in ["US", "UNITED STATES", "CANADA", "UK"]):
+            return "Network Provider Info Available"
         
-    except requests.exceptions.Timeout:
-        escaped_ip = output.escape(ip) if COMPATIBLE_OUTPUT else ip
-        if COMPATIBLE_OUTPUT:
-            print_status(f"Timeout getting country for {escaped_ip}", "warning")
-        else:
-            print(f"Timeout getting country for {escaped_ip}")
-        return "Timeout"
-    except requests.exceptions.ConnectionError:
-        escaped_ip = output.escape(ip) if COMPATIBLE_OUTPUT else ip
-        if COMPATIBLE_OUTPUT:
-            print_status(f"Connection error getting country for {escaped_ip}", "warning")
-        else:
-            print(f"Connection error getting country for {escaped_ip}")
-        return "No Connection"
-    except requests.exceptions.RequestException as e:
-        escaped_ip = output.escape(ip) if COMPATIBLE_OUTPUT else ip
-        if COMPATIBLE_OUTPUT:
-            print_status(f"Request error for {escaped_ip}: {e}", "warning")
-        else:
-            print(f"Request error for {escaped_ip}: {e}")
-        return "Request Error"
-    except Exception as e:
-        escaped_ip = output.escape(ip) if COMPATIBLE_OUTPUT else ip
-        if COMPATIBLE_OUTPUT:
-            print_status(f"Unexpected error getting country for {escaped_ip}: {e}", "warning")
-        else:
-            print(f"Unexpected error getting country for {escaped_ip}: {e}")
-        return "Error"
-    
-    return "Undefined"
+        return "Undefined"
+    except Exception:
+        return "Undefined"
 
-def safe_virustotal_request(url, headers, ip):
+def safe_virustotal_request(url, headers, original_item):
     """Safely make VirusTotal request with retry logic."""
     for attempt in range(MAX_RETRIES):
         try:
@@ -149,40 +110,40 @@ def safe_virustotal_request(url, headers, ip):
             return response
         except requests.exceptions.Timeout:
             if attempt < MAX_RETRIES - 1:
-                escaped_ip = output.escape(ip) if COMPATIBLE_OUTPUT else ip
+                escaped_item = output.escape(str(original_item)) if COMPATIBLE_OUTPUT else str(original_item)
                 if COMPATIBLE_OUTPUT:
-                    print_status(f"Timeout for {escaped_ip}, retrying... (attempt {attempt + 1}/{MAX_RETRIES})", "warning")
+                    print_status(f"Timeout for {escaped_item}, retrying... (attempt {attempt + 1}/{MAX_RETRIES})", "warning")
                 else:
-                    print(f"Timeout for {escaped_ip}, retrying... (attempt {attempt + 1}/{MAX_RETRIES})")
+                    print(f"Timeout for {escaped_item}, retrying... (attempt {attempt + 1}/{MAX_RETRIES})")
                 time.sleep(2)
             else:
-                escaped_ip = output.escape(ip) if COMPATIBLE_OUTPUT else ip
+                escaped_item = output.escape(str(original_item)) if COMPATIBLE_OUTPUT else str(original_item)
                 if COMPATIBLE_OUTPUT:
-                    print_status(f"Final timeout for {escaped_ip} after {MAX_RETRIES} attempts", "warning")
+                    print_status(f"Final timeout for {escaped_item} after {MAX_RETRIES} attempts", "warning")
                 else:
-                    print(f"Final timeout for {escaped_ip} after {MAX_RETRIES} attempts")
+                    print(f"Final timeout for {escaped_item} after {MAX_RETRIES} attempts")
                 return None
         except requests.exceptions.ConnectionError:
             if attempt < MAX_RETRIES - 1:
-                escaped_ip = output.escape(ip) if COMPATIBLE_OUTPUT else ip
+                escaped_item = output.escape(str(original_item)) if COMPATIBLE_OUTPUT else str(original_item)
                 if COMPATIBLE_OUTPUT:
-                    print_status(f"Connection error for {escaped_ip}, retrying... (attempt {attempt + 1}/{MAX_RETRIES})", "warning")
+                    print_status(f"Connection error for {escaped_item}, retrying... (attempt {attempt + 1}/{MAX_RETRIES})", "warning")
                 else:
-                    print(f"Connection error for {escaped_ip}, retrying... (attempt {attempt + 1}/{MAX_RETRIES})")
+                    print(f"Connection error for {escaped_item}, retrying... (attempt {attempt + 1}/{MAX_RETRIES})")
                 time.sleep(2)
             else:
-                escaped_ip = output.escape(ip) if COMPATIBLE_OUTPUT else ip
+                escaped_item = output.escape(str(original_item)) if COMPATIBLE_OUTPUT else str(original_item)
                 if COMPATIBLE_OUTPUT:
-                    print_status(f"Final connection error for {escaped_ip} after {MAX_RETRIES} attempts", "warning")
+                    print_status(f"Final connection error for {escaped_item} after {MAX_RETRIES} attempts", "warning")
                 else:
-                    print(f"Final connection error for {escaped_ip} after {MAX_RETRIES} attempts")
+                    print(f"Final connection error for {escaped_item} after {MAX_RETRIES} attempts")
                 return None
         except Exception as e:
-            escaped_ip = output.escape(ip) if COMPATIBLE_OUTPUT else ip
+            escaped_item = output.escape(str(original_item)) if COMPATIBLE_OUTPUT else str(original_item)
             if COMPATIBLE_OUTPUT:
-                print_status(f"Unexpected error querying {escaped_ip}: {e}", "error")
+                print_status(f"Unexpected error querying {escaped_item}: {e}", "error")
             else:
-                print(f"Unexpected error querying {escaped_ip}: {e}")
+                print(f"Unexpected error querying {escaped_item}: {e}")
             return None
     
     return None
@@ -217,36 +178,41 @@ def safe_handle_rate_limit(ip):
     except Exception:
         return "skip"
 
-def check_ip_virustotal(ip, api_key, cache):
-    """Check IP against VirusTotal with comprehensive error handling."""
+def check_ip_virustotal_with_country(ip, api_key, cache):
+    """Check IP against VirusTotal and extract both reputation and country from single API call."""
     if not ip:
-        return ("unchecked", "No IP provided")
+        return ("unchecked", "No IP provided", "Undefined")
     
-    # Check cache first
-    if ip in cache:
-        return cache[ip]
+    # Check cache first (now storing 3-tuple: verdict, comment, country)
+    cache_key = f"{ip}_full"
+    if cache_key in cache:
+        return cache[cache_key]
 
     # Check if private IP
     try:
         if safe_is_private_ip(ip):
-            cache[ip] = ("unchecked", "IP is private")
-            return cache[ip]
+            result = ("unchecked", "IP is private", "Private")
+            cache[cache_key] = result
+            return result
     except Exception:
         pass
 
     # Check if API key provided
     if not api_key:
-        cache[ip] = ("unchecked", "IP will need to be investigated manually")
-        return cache[ip]
+        result = ("unchecked", "IP will need to be investigated manually", "No API Key")
+        cache[cache_key] = result
+        return result
 
     # Validate API key format
     try:
         if len(api_key.strip()) < 10:
-            cache[ip] = ("unchecked", "Invalid API key format")
-            return cache[ip]
+            result = ("unchecked", "Invalid API key format", "Invalid API")
+            cache[cache_key] = result
+            return result
     except Exception:
-        cache[ip] = ("unchecked", "API key validation error")
-        return cache[ip]
+        result = ("unchecked", "API key validation error", "API Error")
+        cache[cache_key] = result
+        return result
 
     url = f"https://www.virustotal.com/api/v3/ip_addresses/{ip}"
     headers = {"x-apikey": api_key.strip()}
@@ -255,8 +221,9 @@ def check_ip_virustotal(ip, api_key, cache):
         response = safe_virustotal_request(url, headers, ip)
         
         if response is None:
-            cache[ip] = ("unchecked", "Network error - could not reach VirusTotal")
-            return cache[ip]
+            result = ("unchecked", "Network error - could not reach VirusTotal", "Network Error")
+            cache[cache_key] = result
+            return result
         
         if response.status_code == 429:
             action = safe_handle_rate_limit(ip)
@@ -264,54 +231,80 @@ def check_ip_virustotal(ip, api_key, cache):
                 # Try again after waiting
                 response = safe_virustotal_request(url, headers, ip)
                 if response is None or response.status_code == 429:
-                    cache[ip] = ("unchecked", "Rate limit persists")
-                    return cache[ip]
+                    result = ("unchecked", "Rate limit persists", "Rate Limited")
+                    cache[cache_key] = result
+                    return result
             else:  # skip
-                cache[ip] = ("unchecked", "Skipped due to rate limit")
-                return cache[ip]
+                result = ("unchecked", "Skipped due to rate limit", "Skipped")
+                cache[cache_key] = result
+                return result
 
         if response.status_code == 200:
             try:
                 data = response.json()
-                stats = data.get("data", {}).get("attributes", {}).get("last_analysis_stats", {})
                 
+                # Extract reputation data
+                stats = data.get("data", {}).get("attributes", {}).get("last_analysis_stats", {})
                 malicious = stats.get("malicious", 0)
                 suspicious = stats.get("suspicious", 0)
                 harmless = stats.get("harmless", 0)
+                
+                # Extract country from same response - NO ADDITIONAL API CALL!
+                country = extract_country_from_vt_response(data)
 
+                # Determine verdict
                 if malicious > 0:
                     comment = (f"{malicious} vendor flagged this IP as malicious"
                                if malicious == 1 else
                                f"{malicious} vendors flagged this IP as malicious")
-                    cache[ip] = ("malicious", comment)
+                    verdict = "malicious"
                 elif suspicious > 0:
                     comment = (f"{suspicious} vendor flagged this IP as suspicious"
                                if suspicious == 1 else
                                f"{suspicious} vendors flagged this IP as suspicious")
-                    cache[ip] = ("suspicious", comment)
+                    verdict = "suspicious"
                 elif harmless > 0:
                     comment = (f"{harmless} vendor reported this IP as benign"
                                if harmless == 1 else
                                f"{harmless} vendors reported this IP as benign")
-                    cache[ip] = ("benign", comment)
+                    verdict = "benign"
                 else:
-                    cache[ip] = ("unchecked", "No analysis results available")
+                    comment = "No analysis results available"
+                    verdict = "unchecked"
+                
+                result = (verdict, comment, country)
+                cache[cache_key] = result
+                return result
                     
             except ValueError as e:
-                cache[ip] = ("unchecked", f"Invalid JSON response: {e}")
+                result = ("unchecked", f"Invalid JSON response: {e}", "JSON Error")
+                cache[cache_key] = result
+                return result
             except KeyError as e:
-                cache[ip] = ("unchecked", f"Unexpected response format: {e}")
+                result = ("unchecked", f"Unexpected response format: {e}", "Format Error")
+                cache[cache_key] = result
+                return result
             except Exception as e:
-                cache[ip] = ("unchecked", f"Response parsing error: {e}")
+                result = ("unchecked", f"Response parsing error: {e}", "Parse Error")
+                cache[cache_key] = result
+                return result
                 
         elif response.status_code == 401:
-            cache[ip] = ("unchecked", "Invalid API key")
+            result = ("unchecked", "Invalid API key", "Auth Error")
+            cache[cache_key] = result
+            return result
         elif response.status_code == 403:
-            cache[ip] = ("unchecked", "API access forbidden")
+            result = ("unchecked", "API access forbidden", "Access Denied")
+            cache[cache_key] = result
+            return result
         elif response.status_code == 404:
-            cache[ip] = ("unchecked", "IP not found in VirusTotal")
+            result = ("unchecked", "IP not found in VirusTotal", "Not Found")
+            cache[cache_key] = result
+            return result
         else:
-            cache[ip] = ("unchecked", f"HTTP {response.status_code}")
+            result = ("unchecked", f"HTTP {response.status_code}", "HTTP Error")
+            cache[cache_key] = result
+            return result
             
     except Exception as e:
         escaped_ip = output.escape(ip) if COMPATIBLE_OUTPUT else ip
@@ -319,12 +312,12 @@ def check_ip_virustotal(ip, api_key, cache):
             print_status(f"Error querying VirusTotal for IP {escaped_ip}: {e}", "error")
         else:
             print(f"Error querying VirusTotal for IP {escaped_ip}: {e}")
-        cache[ip] = ("unchecked", "Unexpected error during check")
-
-    return cache[ip]
+        result = ("unchecked", "Unexpected error during check", "Error")
+        cache[cache_key] = result
+        return result
 
 def analyze_ips(msg_obj, api_key):
-    """Analyze IPs from email headers with comprehensive error handling."""
+    """Analyze IPs from email headers with comprehensive error handling and combined VT calls."""
     try:
         ip_list = safe_extract_ips_from_headers(msg_obj)
         
@@ -340,14 +333,9 @@ def analyze_ips(msg_obj, api_key):
         
         for ip in ip_list:
             try:
-                verdict, comment = check_ip_virustotal(ip, api_key, cache)
-                country = safe_get_geoip_country(ip)
-
-                if safe_is_private_ip(ip):
-                    country = "Private"
-                elif country == "Undefined":
-                    country = "Undefined"
-
+                # Single API call gets both reputation and country
+                verdict, comment, country = check_ip_virustotal_with_country(ip, api_key, cache)
+                
                 ips_with_data.append((ip, country, verdict, comment))
                 
             except Exception as e:

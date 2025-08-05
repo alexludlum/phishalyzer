@@ -21,8 +21,9 @@ OUTPUT_MODE_FILE = os.path.expanduser("~/.phishalyzer_output_mode")
 
 output_mode = "fanged"  # default output mode - accessible globally
 
-# Global variable to store last analysis results
+# Global variables to store last analysis results
 last_url_analysis_results = None
+last_received_hops = None
 
 def check_defang_mode():
     """Debug function to check current defang mode"""
@@ -452,9 +453,13 @@ def print_current_config(vt_api_key, output_mode):
 
 def run_analysis(file_path, vt_api_key):
     """Run complete email analysis with comprehensive error handling."""
-    global last_url_analysis_results
+    global last_url_analysis_results, last_received_hops
     
     try:
+        # Reset previous results
+        last_url_analysis_results = None
+        last_received_hops = None
+        
         # Validate file path
         if not file_path or not file_path.strip():
             if COMPATIBLE_OUTPUT:
@@ -745,9 +750,61 @@ def view_collapsed_urls():
         else:
             print(f"Error displaying URL details: {e}")
 
+def view_received_hops():
+    """Display detailed email routing hops."""
+    global last_received_hops
+    
+    if not last_received_hops:
+        if COMPATIBLE_OUTPUT:
+            print_status("No received hops available. Run an analysis first.", "warning")
+        else:
+            print("No received hops available. Run an analysis first.")
+        return
+    
+    try:
+        print_section_header("EMAIL ROUTING HOPS")
+        
+        if COMPATIBLE_OUTPUT:
+            output.print(f"Found [blue]{len(last_received_hops)}[/blue] routing hop{'s' if len(last_received_hops) != 1 else ''}:\n")
+        else:
+            print(f"Found {len(last_received_hops)} routing hop{'s' if len(last_received_hops) != 1 else ''}:\n")
+        
+        for hop in last_received_hops:
+            try:
+                index = hop.get('index', '?')
+                content = hop.get('content', 'No content')
+                
+                # Display with only blue hop numbers - no other highlighting
+                if COMPATIBLE_OUTPUT:
+                    escaped_content = output.escape(content)
+                    output.print(f"[blue][{index}][/blue] {escaped_content}")
+                else:
+                    print(f"[{index}] {content}")
+                    
+            except Exception as e:
+                print(f"  [?] Error displaying hop: {e}")
+        
+        # Summary
+        if COMPATIBLE_OUTPUT:
+            output.print(f"\nTotal: {len(last_received_hops)} hop{'s' if len(last_received_hops) != 1 else ''}")
+        else:
+            print(f"\nTotal: {len(last_received_hops)} hop{'s' if len(last_received_hops) != 1 else ''}")
+        
+        # Return prompt
+        try:
+            safe_input("\nPress Enter to return to main menu...")
+        except:
+            pass  # User pressed Ctrl+C or similar, just return
+                
+    except Exception as e:
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Error displaying hops: {e}", "error")
+        else:
+            print(f"Error displaying hops: {e}")
+
 def main():
     """Main application entry point with comprehensive error handling."""
-    global output_mode, last_url_analysis_results
+    global output_mode, last_url_analysis_results, last_received_hops
     
     try:
         parser_args = argparse.ArgumentParser(description="Phishing Email Analyzer")
@@ -771,32 +828,37 @@ def main():
         # Main application loop
         while True:
             try:
+                # Build menu options dynamically
+                menu_options = []
+                if last_url_analysis_results:
+                    menu_options.append(("4", "View collapsed URL variations"))
+                if last_received_hops:
+                    next_num = str(5 if last_url_analysis_results else 4)
+                    menu_options.append((next_num, "View email routing hops"))
+
+                exit_num = str(len(menu_options) + 4)
+                max_option = int(exit_num)
+
                 if COMPATIBLE_OUTPUT:
                     output.print("\n[magenta]===== MAIN MENU =====[/magenta]")
                     output.print("[blue]1:[/blue] Start script [ENTER]")
                     output.print("[blue]2:[/blue] VirusTotal API Settings")
                     output.print("[blue]3:[/blue] Output Settings")
+                    
+                    for num, desc in menu_options:
+                        output.print(f"[blue]{num}:[/blue] {desc}")
+                    
+                    output.print(f"[blue]{exit_num}:[/blue] Exit")
                 else:
                     print("\n===== MAIN MENU =====")
                     print("1: Start script [ENTER]")
                     print("2: VirusTotal API Settings")
                     print("3: Output Settings")
-                
-                # Only show URL details option if we have results
-                if last_url_analysis_results:
-                    if COMPATIBLE_OUTPUT:
-                        output.print("[blue]4:[/blue] View collapsed URL variations")
-                        output.print("[blue]5:[/blue] Exit")
-                    else:
-                        print("4: View collapsed URL variations")
-                        print("5: Exit")
-                    max_option = 5
-                else:
-                    if COMPATIBLE_OUTPUT:
-                        output.print("[blue]4:[/blue] Exit")
-                    else:
-                        print("4: Exit")
-                    max_option = 4
+                    
+                    for num, desc in menu_options:
+                        print(f"{num}: {desc}")
+                    
+                    print(f"{exit_num}: Exit")
 
                 # Configuration display
                 print_current_config(vt_api_key, output_mode)
@@ -858,13 +920,39 @@ def main():
                             else:
                                 print(f"Error viewing URL details: {e}")
                             continue
+                    elif last_received_hops:
+                        # View hops
+                        try:
+                            view_received_hops()
+                        except Exception as e:
+                            if COMPATIBLE_OUTPUT:
+                                print_status(f"Error viewing hops: {e}", "error")
+                            else:
+                                print(f"Error viewing hops: {e}")
+                            continue
                     else:
                         # Exit
                         print("Exiting.")
                         break
-                        
-                elif choice == "5" and last_url_analysis_results:
-                    # Exit (when URL option is available)
+
+                elif choice == "5":
+                    if last_url_analysis_results and last_received_hops:
+                        # View hops when both URL and hops are available
+                        try:
+                            view_received_hops()
+                        except Exception as e:
+                            if COMPATIBLE_OUTPUT:
+                                print_status(f"Error viewing hops: {e}", "error")
+                            else:
+                                print(f"Error viewing hops: {e}")
+                            continue
+                    else:
+                        # Exit
+                        print("Exiting.")
+                        break
+
+                elif choice == exit_num:
+                    # Exit
                     print("Exiting.")
                     break
                 else:

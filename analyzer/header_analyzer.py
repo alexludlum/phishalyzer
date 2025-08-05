@@ -278,33 +278,65 @@ def analyze_headers(msg_obj: Message):
         else:
             print()
 
-        # Display Received hops with NO highlighting (plain text except hop numbers)
+        # Store Received hops but don't display them - show summary instead
         try:
-            if COMPATIBLE_OUTPUT:
-                output.print("[blue]Received Hops:[/blue]")
-            else:
-                print("Received Hops:")
-                
+            # Store hops globally for later viewing
             try:
-                hops = msg_obj.get_all("Received", []) if hasattr(msg_obj, 'get_all') else []
-                if not hops:
-                    print("  No Received headers found")
+                import sys
+                main_module = sys.modules.get('__main__') or sys.modules.get('phishalyzer')
+                if main_module:
+                    global_results = main_module
                 else:
-                    for i, hop in enumerate(hops, 1):
+                    global_results = None
+            except Exception:
+                global_results = None
+
+            hops = []
+            try:
+                hop_headers = msg_obj.get_all("Received", []) if hasattr(msg_obj, 'get_all') else []
+                if hop_headers:
+                    for i, hop in enumerate(hop_headers, 1):
                         try:
                             # Apply only defanging, NO color highlighting
                             defanged_hop = apply_defanging_if_enabled(str(hop))
-                            
-                            # Display with only blue hop numbers - no other highlighting
-                            if COMPATIBLE_OUTPUT:
-                                escaped_hop = output.escape(defanged_hop)
-                                output.print(f"[blue][{i}][/blue] {escaped_hop}")
-                            else:
-                                print(f"[{i}] {defanged_hop}")
+                            hops.append({
+                                'index': i,
+                                'content': defanged_hop,
+                                'raw': str(hop)
+                            })
                         except Exception as e:
-                            print(f"  [{i}] Error processing hop: {e}")
+                            hops.append({
+                                'index': i,
+                                'content': f"Error processing hop: {e}",
+                                'raw': f"Error: {e}"
+                            })
             except Exception as e:
-                print(f"  Error extracting Received headers: {e}")
+                if COMPATIBLE_OUTPUT:
+                    print_status(f"Error extracting Received headers: {e}", "error")
+                else:
+                    print(f"Error extracting Received headers: {e}")
+
+            # Store hops globally
+            if global_results:
+                try:
+                    setattr(global_results, 'last_received_hops', hops)
+                except Exception:
+                    pass
+
+            # Display summary instead of full hops
+            if hops:
+                if COMPATIBLE_OUTPUT:
+                    output.print(f"[blue]Received Hops:[/blue] {len(hops)} hop{'s' if len(hops) != 1 else ''} found")
+                    output.print("[blue][Use menu option 'View email routing hops' for full details][/blue]")
+                else:
+                    print(f"Received Hops: {len(hops)} hop{'s' if len(hops) != 1 else ''} found")
+                    print("[Use menu option 'View email routing hops' for full details]")
+            else:
+                if COMPATIBLE_OUTPUT:
+                    output.print("[blue]Received Hops:[/blue] No Received headers found")
+                else:
+                    print("Received Hops: No Received headers found")
+
         except Exception as e:
             if COMPATIBLE_OUTPUT:
                 print_status(f"Error in Received hops analysis: {e}", "error")

@@ -19,53 +19,73 @@ IPV6_PATTERNS = [
     # IPv6 loopback (::1) - highest priority
     re.compile(r'\b::1\b'),
     
-    # IPv6 with compression - comprehensive pattern: 2603:10a6:e10:39::20
-    re.compile(r'\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4}){1,6}::[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4}){0,5}\b'),
+    # IPv6 with compression - MULTIPLE patterns to handle all segment counts
+    # Pattern: 2603:10a6:e10:39:cafe::d6 (5+ segments before ::)
+    re.compile(r'\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4}){4,}::[0-9a-fA-F]{1,4}(?=\W|$)'),
     
-    # IPv6 with compression at end: 2603:10a6:e10:39::
-    re.compile(r'\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4}){1,6}::\b'),
+    # Pattern: 2603:10a6:e10:39::20 (3-4 segments before ::)
+    re.compile(r'\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4}){2,3}::[0-9a-fA-F]{1,4}(?=\W|$)'),
+    
+    # Pattern: 2603:10a6::d6 (2 segments before ::)
+    re.compile(r'\b[0-9a-fA-F]{1,4}:[0-9a-fA-F]{1,4}::[0-9a-fA-F]{1,4}(?=\W|$)'),
+    
+    # Pattern: 2603::d6 (1 segment before ::)
+    re.compile(r'\b[0-9a-fA-F]{1,4}::[0-9a-fA-F]{1,4}(?=\W|$)'),
+    
+    # IPv6 with compression ending - multiple segment counts
+    re.compile(r'\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4}){1,}::(?=\W|$)'),
     
     # IPv6 with compression at start: ::2603:10a6:e10:39
-    re.compile(r'\b::[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4}){1,6}\b'),
+    re.compile(r'\b::[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4})*(?=\W|$)'),
     
     # Full IPv6 (no compression): 2603:10a6:e10:39:cafe:beef:1234:5678
-    re.compile(r'\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b'),
+    re.compile(r'\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}(?=\W|$)'),
     
     # 6-segment IPv6: 2603:10a6:e10:39:cafe:d6
-    re.compile(r'\b(?:[0-9a-fA-F]{1,4}:){5}[0-9a-fA-F]{1,4}\b'),
+    re.compile(r'\b(?:[0-9a-fA-F]{1,4}:){5}[0-9a-fA-F]{1,4}(?=\W|$)'),
     
     # 4-segment IPv6: 2603:10a6:e10:39 (be careful not to match timestamps)
-    re.compile(r'\b(?:[0-9a-fA-F]{2,4}:){3}[0-9a-fA-F]{2,4}\b')
+    re.compile(r'\b(?:[0-9a-fA-F]{2,4}:){3}[0-9a-fA-F]{2,4}(?=\W|$)')
 ]
 
 # DEFANGED IPv6 patterns - FIXED to handle [::] compression correctly
 DEFANGED_IPV6_PATTERNS = [
     # Defanged IPv6 loopback: [::]1
-    re.compile(r'\b\[::\]1\b'),
+    re.compile(r'\b\[::\]1(?=\W|$)'),
     
-    # Defanged IPv6 with compression: 2603[:]10a6[:]e10[:]39[:]cafe[::]d6
-    re.compile(r'\b[0-9a-fA-F]{1,4}(?:\[:\][0-9a-fA-F]{1,4}){1,6}\[::\][0-9a-fA-F]{1,4}(?:\[:\][0-9a-fA-F]{1,4}){0,5}\b'),
+    # Defanged IPv6 with compression - MULTIPLE patterns for different segment counts
+    # Pattern: 2603[:]10a6[:]e10[:]39[:]cafe[::]d6 (5+ segments before [::])
+    re.compile(r'\b[0-9a-fA-F]{1,4}(?:\[:\][0-9a-fA-F]{1,4}){4,}\[::\][0-9a-fA-F]{1,4}(?=\W|$)'),
     
-    # Defanged IPv6 with compression at end: 2603[:]10a6[:]e10[:]39[::]
-    re.compile(r'\b[0-9a-fA-F]{1,4}(?:\[:\][0-9a-fA-F]{1,4}){1,6}\[::\]\b'),
+    # Pattern: 2603[:]10a6[:]e10[:]39[::]d6 (3-4 segments before [::])
+    re.compile(r'\b[0-9a-fA-F]{1,4}(?:\[:\][0-9a-fA-F]{1,4}){2,3}\[::\][0-9a-fA-F]{1,4}(?=\W|$)'),
+    
+    # Pattern: 2603[:]10a6[::]d6 (2 segments before [::])
+    re.compile(r'\b[0-9a-fA-F]{1,4}\[:\][0-9a-fA-F]{1,4}\[::\][0-9a-fA-F]{1,4}(?=\W|$)'),
+    
+    # Pattern: 2603[::]d6 (1 segment before [::])
+    re.compile(r'\b[0-9a-fA-F]{1,4}\[::\][0-9a-fA-F]{1,4}(?=\W|$)'),
+    
+    # Defanged IPv6 with compression ending: 2603[:]10a6[:]e10[:]39[::]
+    re.compile(r'\b[0-9a-fA-F]{1,4}(?:\[:\][0-9a-fA-F]{1,4}){1,}\[::\](?=\W|$)'),
     
     # Defanged IPv6 with compression at start: [::]2603[:]10a6[:]e10[:]39
-    re.compile(r'\b\[::\][0-9a-fA-F]{1,4}(?:\[:\][0-9a-fA-F]{1,4}){1,6}\b'),
+    re.compile(r'\b\[::\][0-9a-fA-F]{1,4}(?:\[:\][0-9a-fA-F]{1,4})*(?=\W|$)'),
     
     # Defanged full IPv6 (no compression): 2603[:]10a6[:]e10[:]39[:]cafe[:]beef[:]1234[:]5678
-    re.compile(r'\b(?:[0-9a-fA-F]{1,4}\[:\]){7}[0-9a-fA-F]{1,4}\b'),
+    re.compile(r'\b(?:[0-9a-fA-F]{1,4}\[:\]){7}[0-9a-fA-F]{1,4}(?=\W|$)'),
     
     # Defanged 6-segment: 2603[:]10a6[:]e10[:]39[:]cafe[:]d6
-    re.compile(r'\b(?:[0-9a-fA-F]{1,4}\[:\]){5}[0-9a-fA-F]{1,4}\b'),
+    re.compile(r'\b(?:[0-9a-fA-F]{1,4}\[:\]){5}[0-9a-fA-F]{1,4}(?=\W|$)'),
     
     # Defanged 5-segment: 2603[:]10a6[:]e10[:]39[:]cafe
-    re.compile(r'\b(?:[0-9a-fA-F]{1,4}\[:\]){4}[0-9a-fA-F]{1,4}\b'),
+    re.compile(r'\b(?:[0-9a-fA-F]{1,4}\[:\]){4}[0-9a-fA-F]{1,4}(?=\W|$)'),
     
     # Defanged 4-segment: 2603[:]10a6[:]e10[:]39
-    re.compile(r'\b(?:[0-9a-fA-F]{2,4}\[:\]){3}[0-9a-fA-F]{1,4}\b'),
+    re.compile(r'\b(?:[0-9a-fA-F]{2,4}\[:\]){3}[0-9a-fA-F]{1,4}(?=\W|$)'),
     
     # Defanged 3-segment: 2603[:]10a6[:]e10
-    re.compile(r'\b(?:[0-9a-fA-F]{2,4}\[:\]){2}[0-9a-fA-F]{2,4}\b')
+    re.compile(r'\b(?:[0-9a-fA-F]{2,4}\[:\]){2}[0-9a-fA-F]{2,4}(?=\W|$)')
 ]
 
 # PRECISE timestamp patterns - FIXED to capture complete timestamps
@@ -163,25 +183,11 @@ def highlight_hops(text):
         processed_text = re.sub(IPV4_PATTERN, make_ip_yellow, processed_text)
         processed_text = re.sub(DEFANGED_IPV4_PATTERN, make_ip_yellow, processed_text)
         
-        # Apply all IPv6 patterns - ORDER MATTERS (most specific first)
+        # Apply IPv6 patterns in order (most specific first)
         for ipv6_pattern in IPV6_PATTERNS:
             processed_text = re.sub(ipv6_pattern, make_ip_yellow, processed_text)
         
-        # SPECIAL HANDLING for defanged IPv6 with compression
-        # First try the compression patterns, then the regular patterns
-        compression_patterns = [
-            # 2603[:]10a6[:]e10[:]39[:]cafe[::]d6 - COMPLETE match
-            re.compile(r'\b[0-9a-fA-F]{1,4}(?:\[:\][0-9a-fA-F]{1,4})*\[::\][0-9a-fA-F]{1,4}(?:\[:\][0-9a-fA-F]{1,4})*\b'),
-            # [::]1 or [::]xxxx
-            re.compile(r'\b\[::\][0-9a-fA-F]{1,4}(?:\[:\][0-9a-fA-F]{1,4})*\b'),
-            # xxxx[:]yyyy[::]
-            re.compile(r'\b[0-9a-fA-F]{1,4}(?:\[:\][0-9a-fA-F]{1,4})*\[::\]\b')
-        ]
-        
-        for compression_pattern in compression_patterns:
-            processed_text = re.sub(compression_pattern, make_ip_yellow, processed_text)
-        
-        # Then apply regular defanged IPv6 patterns
+        # Apply defanged IPv6 patterns
         for defanged_ipv6_pattern in DEFANGED_IPV6_PATTERNS:
             processed_text = re.sub(defanged_ipv6_pattern, make_ip_yellow, processed_text)
         

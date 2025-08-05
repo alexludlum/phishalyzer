@@ -35,6 +35,8 @@ def check_defang_mode():
     except:
         return "fanged"
 
+# Replace these TWO functions in phishalyzer.py
+
 def apply_defanging(text):
     """Centralized defanging function that ALWAYS works when in defanged mode"""
     if not text or not isinstance(text, str):
@@ -53,34 +55,103 @@ def apply_defanging(text):
     result = result.replace('http://', 'http[:]//') 
     result = result.replace('ftp://', 'ftp[:]//') 
     
-    # Replace common TLDs and domains
-    replacements = [
-        ('.com', '[.]com'),
-        ('.net', '[.]net'),
-        ('.org', '[.]org'),
-        ('.edu', '[.]edu'),
-        ('.gov', '[.]gov'),
-        ('.mil', '[.]mil'),
-        ('.int', '[.]int'),
-        ('.co.', '[.]co[.]'),
-        ('.uk', '[.]uk'),
-        ('.de', '[.]de'),
-        ('.fr', '[.]fr'),
-        ('.io', '[.]io'),
-        ('.me', '[.]me'),
-        ('.ru', '[.]ru'),
-        ('.cn', '[.]cn'),
-        ('.jp', '[.]jp'),
-        ('.au', '[.]au'),
-        ('.ca', '[.]ca'),
-        ('.info', '[.]info'),
-        ('.biz', '[.]biz'),
-        ('.tv', '[.]tv'),
-        ('.cc', '[.]cc')
-    ]
+    # FIXED: Check if this looks like a domain that's missing dots
+    # (e.g., "mail123-ripplenet" should be "mail123-ripple.net")
+    if '.' not in result and not result.startswith(('http', 'https', 'ftp')):
+        # Special cases that need manual handling
+        special_cases = [
+            # Pattern: (search_string, replacement)
+            ('getbeeio', 'getbee[.]io'),
+            ('linkcoindesk', 'link[.]coindesk[.]com'),  # Added this
+            ('coindesk', 'coindesk[.]com'),
+            ('ripplenet', 'ripple[.]net'),
+            ('sailthrucom', 'sailthru[.]com'),
+        ]
+        
+        # Apply special case replacements
+        for search, replacement in special_cases:
+            if result.endswith(search) or result == search:  # More precise matching
+                # Replace only the matching part at the end
+                if result.endswith(search):
+                    prefix = result[:-len(search)]
+                    result = prefix + replacement
+                else:
+                    result = replacement
+                break  # Only apply one replacement
+        
+        # If no special case matched, try generic TLD detection
+        if '[.]' not in result:
+            # Common TLD patterns at the end of domains
+            tld_patterns = [
+                ('com', '[.]com'),
+                ('net', '[.]net'),
+                ('org', '[.]org'),
+                ('edu', '[.]edu'),
+                ('gov', '[.]gov'),
+                ('mil', '[.]mil'),
+                ('int', '[.]int'),
+                ('io', '[.]io'),
+                ('co', '[.]co'),
+                ('uk', '[.]uk'),
+                ('de', '[.]de'),
+                ('fr', '[.]fr'),
+                ('ru', '[.]ru'),
+                ('cn', '[.]cn'),
+                ('jp', '[.]jp'),
+                ('au', '[.]au'),
+                ('ca', '[.]ca'),
+                ('info', '[.]info'),
+                ('biz', '[.]biz'),
+                ('tv', '[.]tv'),
+                ('cc', '[.]cc'),
+                ('me', '[.]me')
+            ]
+            
+            # Check if domain ends with a TLD (without dot)
+            for tld, replacement in tld_patterns:
+                if result.endswith(tld) and len(result) > len(tld):
+                    # Make sure we're at a word boundary
+                    prefix = result[:-len(tld)]
+                    if prefix and prefix[-1].isalnum():
+                        # This looks like a domain missing its dot
+                        result = prefix + replacement
+                        break
     
-    for original, replacement in replacements:
-        result = result.replace(original, replacement)
+    # Replace dots in domains (for already properly formatted domains)
+    else:
+        replacements = [
+            ('.com', '[.]com'),
+            ('.net', '[.]net'),
+            ('.org', '[.]org'),
+            ('.edu', '[.]edu'),
+            ('.gov', '[.]gov'),
+            ('.mil', '[.]mil'),
+            ('.int', '[.]int'),
+            ('.co.', '[.]co[.]'),
+            ('.uk', '[.]uk'),
+            ('.de', '[.]de'),
+            ('.fr', '[.]fr'),
+            ('.io', '[.]io'),
+            ('.me', '[.]me'),
+            ('.ru', '[.]ru'),
+            ('.cn', '[.]cn'),
+            ('.jp', '[.]jp'),
+            ('.au', '[.]au'),
+            ('.ca', '[.]ca'),
+            ('.info', '[.]info'),
+            ('.biz', '[.]biz'),
+            ('.tv', '[.]tv'),
+            ('.cc', '[.]cc')
+        ]
+        
+        for original, replacement in replacements:
+            result = result.replace(original, replacement)
+        
+        # Handle any remaining dots in the middle of domains
+        # But be careful not to replace dots that are already part of [.]
+        if '.' in result and '[.]' not in result:
+            # This is a domain with dots that weren't caught by TLD replacement
+            result = result.replace('.', '[.]')
     
     return result
 
@@ -615,29 +686,30 @@ def view_collapsed_urls():
             urls = result['urls']
             verdict = result['verdict']
             
-            # Color code the verdict for header
-            if verdict == "malicious":
-                verdict_display = "[red]MALICIOUS[/red]"
-            elif verdict == "suspicious":
-                verdict_display = "[orange3]SUSPICIOUS[/orange3]"
-            elif verdict == "benign":
-                verdict_display = "[green]BENIGN[/green]"
-            else:
-                verdict_display = "[orange3]UNCHECKED[/orange3]"
-            
             # Apply defanging to domain using centralized function
             display_domain = apply_defanging(domain)
-            escaped_domain = output.escape(display_domain) if COMPATIBLE_OUTPUT else display_domain
             
-            # Display domain header with verdict and count
-            header_text = f"{escaped_domain} - {verdict_display} ({len(urls)} URL{'s' if len(urls) != 1 else ''}):"
-            
+            # FIXED: Build and display the header with proper color handling
             if COMPATIBLE_OUTPUT:
-                output.print(header_text)  # This will process the [green]BENIGN[/green] markup!
+                escaped_domain = output.escape(display_domain)
+                
+                # Color code the verdict text based on verdict type
+                if verdict == "malicious":
+                    verdict_colored = output.colorize("MALICIOUS", "red")
+                elif verdict == "suspicious":
+                    verdict_colored = output.colorize("SUSPICIOUS", "orange3")
+                elif verdict == "benign":
+                    verdict_colored = output.colorize("BENIGN", "green")
+                else:
+                    verdict_colored = output.colorize("UNCHECKED", "orange3")
+                
+                # Build header with escaped domain and pre-colored verdict
+                header_text = f"{escaped_domain} - {verdict_colored} ({len(urls)} URL{'s' if len(urls) != 1 else ''}):"
+                print(header_text)  # Use regular print since verdict is already colored
             else:
-                # For non-compatible terminals, strip markup manually
-                clean_header = re.sub(r'\[/?[^\]]*\]', '', header_text)
-                print(clean_header)
+                # For non-compatible terminals
+                clean_verdict = verdict.upper()
+                print(f"{display_domain} - {clean_verdict} ({len(urls)} URL{'s' if len(urls) != 1 else ''}):")
             
             # Display each URL with defanging
             for j, url in enumerate(urls, 1):

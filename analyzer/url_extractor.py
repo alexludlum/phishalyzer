@@ -541,7 +541,7 @@ def analyze_urls(msg_obj, api_key):
                     escaped_domain = output.escape(display_domain) if COMPATIBLE_OUTPUT else display_domain
                     escaped_comment = output.escape(comment) if COMPATIBLE_OUTPUT else comment
                     
-                    print(f"• {escaped_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {escaped_comment}")
+                    print(f"- {escaped_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {escaped_comment}")
                     
                     if representative_url:
                         display_url = simple_defang(representative_url)
@@ -569,7 +569,7 @@ def analyze_urls(msg_obj, api_key):
                     escaped_domain = output.escape(display_domain) if COMPATIBLE_OUTPUT else display_domain
                     escaped_comment = output.escape(comment) if COMPATIBLE_OUTPUT else comment
                     
-                    print(f"• {escaped_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {escaped_comment}")
+                    print(f"- {escaped_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {escaped_comment}")
                     
                     if representative_url:
                         display_url = simple_defang(representative_url)
@@ -602,7 +602,7 @@ def analyze_urls(msg_obj, api_key):
                         escaped_domain = output.escape(display_domain) if COMPATIBLE_OUTPUT else display_domain
                         escaped_comment = output.escape(comment) if COMPATIBLE_OUTPUT else comment
                         
-                        print(f"• {escaped_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {escaped_comment}")
+                        print(f"- {escaped_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {escaped_comment}")
                 
                 # Group malformed URLs together
                 if malformed_domains:
@@ -612,10 +612,10 @@ def analyze_urls(msg_obj, api_key):
                     if normal_unchecked and len(normal_unchecked) > 3:
                         # Show condensed view for all unchecked
                         total_unchecked_urls = sum(r['url_count'] for r in unchecked_domains)
-                        print(f"• {unchecked_count} domains with {total_unchecked_urls} URL{'s' if total_unchecked_urls != 1 else ''} total - Not found in VirusTotal")
+                        print(f"- {unchecked_count} domains with {total_unchecked_urls} URL{'s' if total_unchecked_urls != 1 else ''} total - Not found in VirusTotal")
                     else:
                         # Show malformed separately
-                        print(f"• {malformed_count} malformed/truncated domains ({malformed_url_count} URL{'s' if malformed_url_count != 1 else ''}) - Not found in VirusTotal")
+                        print(f"- {malformed_count} malformed/truncated domains ({malformed_url_count} URL{'s' if malformed_url_count != 1 else ''}) - Not found in VirusTotal")
                     
                     # Show samples from normal domains first, then malformed if needed
                     sample_urls = []
@@ -647,7 +647,7 @@ def analyze_urls(msg_obj, api_key):
                 elif len(normal_unchecked) > 3:
                     # Only normal unchecked domains, too many to show individually
                     total_unchecked_urls = sum(r['url_count'] for r in unchecked_domains)
-                    print(f"• {unchecked_count} domains with {total_unchecked_urls} URL{'s' if total_unchecked_urls != 1 else ''} total - Not found in VirusTotal")
+                    print(f"- {unchecked_count} domains with {total_unchecked_urls} URL{'s' if total_unchecked_urls != 1 else ''} total - Not found in VirusTotal")
                     
                     # Show first few samples
                     sample_urls = []
@@ -684,7 +684,7 @@ def analyze_urls(msg_obj, api_key):
                     escaped_domain = output.escape(display_domain) if COMPATIBLE_OUTPUT else display_domain
                     escaped_comment = output.escape(comment) if COMPATIBLE_OUTPUT else comment
                     
-                    print(f"• {escaped_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {escaped_comment}")
+                    print(f"- {escaped_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {escaped_comment}")
             
             # Show menu hint if there are domains with multiple URLs or many domains
             domains_with_multiple = [r for r in results if r['url_count'] > 1]

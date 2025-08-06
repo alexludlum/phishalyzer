@@ -6,6 +6,7 @@ from analyzer import header_analyzer
 from analyzer import ioc_extractor
 from analyzer import url_extractor
 from analyzer import attachment_analyzer
+from analyzer import body_analyzer
 from analyzer import defanger
 
 # Import the universal output system
@@ -24,6 +25,7 @@ output_mode = "fanged"  # default output mode - accessible globally
 # Global variables to store last analysis results
 last_url_analysis_results = None
 last_received_hops = None
+last_body_analysis_results = None
 
 def check_defang_mode():
     """Debug function to check current defang mode"""
@@ -453,12 +455,13 @@ def print_current_config(vt_api_key, output_mode):
 
 def run_analysis(file_path, vt_api_key):
     """Run complete email analysis with comprehensive error handling."""
-    global last_url_analysis_results, last_received_hops
+    global last_url_analysis_results, last_received_hops, last_body_analysis_results
     
     try:
         # Reset previous results
         last_url_analysis_results = None
         last_received_hops = None
+        last_body_analysis_results = None
         
         # Validate file path
         if not file_path or not file_path.strip():
@@ -562,6 +565,18 @@ def run_analysis(file_path, vt_api_key):
             else:
                 print(f"Error during URL analysis: {e}")
                 print("Skipping URL analysis and continuing...")
+
+        # Body analysis - NEW SECTION
+        try:
+            print_section_header("EMAIL BODY ANALYSIS")
+            last_body_analysis_results = body_analyzer.analyze_email_body(msg_obj, api_key=vt_api_key)
+        except Exception as e:
+            if COMPATIBLE_OUTPUT:
+                print_status(f"Error during body analysis: {e}", "error")
+                print_status("Skipping body analysis and continuing...", "warning")
+            else:
+                print(f"Error during body analysis: {e}")
+                print("Skipping body analysis and continuing...")
 
         # Attachment analysis
         try:
@@ -750,6 +765,25 @@ def view_collapsed_urls():
         else:
             print(f"Error displaying URL details: {e}")
 
+def view_body_analysis_details():
+    """Display detailed body analysis breakdown."""
+    global last_body_analysis_results
+    
+    if not last_body_analysis_results:
+        if COMPATIBLE_OUTPUT:
+            print_status("No body analysis results available. Run an analysis first.", "warning")
+        else:
+            print("No body analysis results available. Run an analysis first.")
+        return
+    
+    try:
+        body_analyzer.display_detailed_body_analysis(last_body_analysis_results)
+    except Exception as e:
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Error displaying body analysis details: {e}", "error")
+        else:
+            print(f"Error displaying body analysis details: {e}")
+
 def view_received_hops():
     """Display detailed email routing hops."""
     global last_received_hops
@@ -808,7 +842,7 @@ def view_received_hops():
 
 def main():
     """Main application entry point with comprehensive error handling."""
-    global output_mode, last_url_analysis_results, last_received_hops
+    global output_mode, last_url_analysis_results, last_received_hops, last_body_analysis_results
     
     try:
         parser_args = argparse.ArgumentParser(description="Phishing Email Analyzer")
@@ -836,8 +870,11 @@ def main():
                 menu_options = []
                 if last_url_analysis_results:
                     menu_options.append(("4", "View collapsed URL variations"))
+                if last_body_analysis_results:
+                    next_num = str(len(menu_options) + 4)
+                    menu_options.append((next_num, "View body analysis details"))
                 if last_received_hops:
-                    next_num = str(5 if last_url_analysis_results else 4)
+                    next_num = str(len(menu_options) + 4)
                     menu_options.append((next_num, "View email routing hops"))
 
                 exit_num = str(len(menu_options) + 4)
@@ -924,6 +961,16 @@ def main():
                             else:
                                 print(f"Error viewing URL details: {e}")
                             continue
+                    elif last_body_analysis_results:
+                        # View body analysis details
+                        try:
+                            view_body_analysis_details()
+                        except Exception as e:
+                            if COMPATIBLE_OUTPUT:
+                                print_status(f"Error viewing body analysis details: {e}", "error")
+                            else:
+                                print(f"Error viewing body analysis details: {e}")
+                            continue
                     elif last_received_hops:
                         # View hops
                         try:
@@ -940,8 +987,46 @@ def main():
                         break
 
                 elif choice == "5":
-                    if last_url_analysis_results and last_received_hops:
-                        # View hops when both URL and hops are available
+                    # This could be body analysis, hops, or exit depending on what's available
+                    if last_url_analysis_results and last_body_analysis_results:
+                        # View body analysis details
+                        try:
+                            view_body_analysis_details()
+                        except Exception as e:
+                            if COMPATIBLE_OUTPUT:
+                                print_status(f"Error viewing body analysis details: {e}", "error")
+                            else:
+                                print(f"Error viewing body analysis details: {e}")
+                            continue
+                    elif last_url_analysis_results and last_received_hops:
+                        # View hops (no body analysis available)
+                        try:
+                            view_received_hops()
+                        except Exception as e:
+                            if COMPATIBLE_OUTPUT:
+                                print_status(f"Error viewing hops: {e}", "error")
+                            else:
+                                print(f"Error viewing hops: {e}")
+                            continue
+                    elif last_body_analysis_results and last_received_hops:
+                        # View hops (no URL analysis available)
+                        try:
+                            view_received_hops()
+                        except Exception as e:
+                            if COMPATIBLE_OUTPUT:
+                                print_status(f"Error viewing hops: {e}", "error")
+                            else:
+                                print(f"Error viewing hops: {e}")
+                            continue
+                    else:
+                        # Exit
+                        print("Exiting.")
+                        break
+
+                elif choice == "6":
+                    # This could be hops or exit
+                    if last_url_analysis_results and last_body_analysis_results and last_received_hops:
+                        # View hops (all three available)
                         try:
                             view_received_hops()
                         except Exception as e:

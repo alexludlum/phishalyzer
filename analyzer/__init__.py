@@ -9,6 +9,7 @@ from . import attachment_analyzer
 from . import qr_analyzer
 from . import defanger
 from . import compatible_output
+from . import body_analyzer
 
 __all__ = [
     'parser',
@@ -18,5 +19,6 @@ __all__ = [
     'attachment_analyzer',
     'qr_analyzer',
     'defanger',
-    'compatible_output'
+    'compatible_output',
+    'body_analyzer'
 ]

@@ -97,7 +97,7 @@ class UniversalOutput:
             'red': Colors.RED,
             'green': Colors.GREEN,
             'yellow': Colors.YELLOW,
-            'blue': Colors.BLUE,
+            'blue': Colors.BRIGHT_BLUE,
             'magenta': Colors.MAGENTA,
             'cyan': Colors.CYAN,
             'white': Colors.WHITE,

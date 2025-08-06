@@ -166,7 +166,7 @@ def highlight_hops(text):
             timestamp_text = match.group(0)
             # Check if already colored
             if '\033[' not in timestamp_text:
-                return f"\033[34m{timestamp_text}\033[0m"  # Blue ANSI
+                return f"\033[94m{timestamp_text}\033[0m"  # Bright Blue ANSI
             return timestamp_text
         
         # Apply all timestamp patterns

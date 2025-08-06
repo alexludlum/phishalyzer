@@ -120,6 +120,132 @@ def safe_extract_urls_from_headers(msg_obj):
             print(f"Error in URL extraction: {e}")
         return []
 
+def safe_extract_urls_from_body(msg_obj):
+    """NEW: Extract URLs from email body content including HTML links"""
+    try:
+        if not msg_obj:
+            return []
+        
+        body_content = ""
+        found_urls = []
+        
+        # Extract both plain text and HTML content
+        if hasattr(msg_obj, 'is_multipart') and msg_obj.is_multipart():
+            for part in msg_obj.walk():
+                try:
+                    if part.get_content_type() == "text/html":
+                        payload = part.get_payload(decode=True)
+                        if payload:
+                            html_content = payload.decode('utf-8', errors='ignore')
+                            
+                            # Extract href URLs BEFORE stripping HTML - this is the key fix!
+                            href_patterns = [
+                                r'href=["\']([^"\']+)["\']',  # Standard href attributes
+                                r'href=([^\s>]+)',           # href without quotes
+                                r'action=["\']([^"\']+)["\']', # Form actions
+                                r'src=["\']([^"\']+)["\']'    # Image/script sources
+                            ]
+                            
+                            for pattern in href_patterns:
+                                href_matches = re.findall(pattern, html_content, re.IGNORECASE)
+                                for match in href_matches:
+                                    # Filter out non-HTTP URLs (mailto:, javascript:, etc.)
+                                    if match.startswith(('http://', 'https://', 'www.')):
+                                        found_urls.append(match)
+                            
+                            # Also get the HTML content for direct URL matches
+                            body_content += html_content + " "
+                    
+                    elif part.get_content_type() == "text/plain":
+                        payload = part.get_payload(decode=True)
+                        if payload:
+                            plain_content = payload.decode('utf-8', errors='ignore')
+                            body_content += plain_content + " "
+                            
+                except Exception:
+                    continue
+        else:
+            # Single part message
+            try:
+                payload = msg_obj.get_payload(decode=True)
+                if payload:
+                    if isinstance(payload, bytes):
+                        body_content = payload.decode('utf-8', errors='ignore')
+                    else:
+                        body_content = str(payload)
+            except Exception:
+                try:
+                    # Fallback to non-decoded payload
+                    payload = msg_obj.get_payload()
+                    if payload:
+                        body_content = str(payload)
+                except Exception:
+                    body_content = ""
+        
+        # Extract URLs using enhanced regex patterns
+        url_patterns = [
+            r'https?://[^\s<>"\']+',                    # Standard HTTP URLs
+            r'www\.[^\s<>"\']+',                        # www domains
+            r'onclick=["\']location\.href=["\']([^"\']+)["\']'  # JavaScript redirects
+        ]
+        
+        for pattern in url_patterns:
+            try:
+                matches = re.findall(pattern, body_content, re.IGNORECASE)
+                if isinstance(matches[0] if matches else None, tuple):
+                    # Handle patterns that return groups
+                    found_urls.extend([match for match in matches if isinstance(match, str)])
+                else:
+                    found_urls.extend(matches)
+            except Exception:
+                continue
+        
+        # Clean and validate URLs
+        valid_urls = []
+        for url in found_urls:
+            try:
+                url = url.strip()
+                if len(url) > 2000:  # Skip extremely long URLs
+                    continue
+                if url and not url.isspace():
+                    # Basic URL validation
+                    if url.startswith(('http://', 'https://', 'www.')):
+                        valid_urls.append(url)
+            except Exception:
+                continue
+        
+        return list(set(valid_urls))  # Remove duplicates
+        
+    except Exception as e:
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Error extracting URLs from body: {e}", "error")
+        else:
+            print(f"Error extracting URLs from body: {e}")
+        return []
+
+def safe_extract_urls_from_email_complete(msg_obj):
+    """NEW: Extract URLs from BOTH headers AND body content"""
+    try:
+        all_urls = []
+        
+        # 1. Extract from headers (existing logic)
+        header_urls = safe_extract_urls_from_headers(msg_obj)
+        all_urls.extend(header_urls)
+        
+        # 2. NEW: Extract from email body
+        body_urls = safe_extract_urls_from_body(msg_obj)
+        all_urls.extend(body_urls)
+        
+        # Remove duplicates and return
+        return list(set(all_urls))
+        
+    except Exception as e:
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Error in complete URL extraction: {e}", "error")
+        else:
+            print(f"Error in complete URL extraction: {e}")
+        return []
+
 def extract_domain(url):
     """Extract domain from URL for grouping with better handling of malformed URLs."""
     try:
@@ -415,7 +541,7 @@ def safe_get_user_input(prompt):
         return "n"
 
 def analyze_urls(msg_obj, api_key):
-    """Analyze URLs from email headers with domain-based grouping and working defanging."""
+    """Analyze URLs from both email headers AND body content with domain-based grouping."""
     try:
         # Import the global variable from main module
         try:
@@ -428,7 +554,8 @@ def analyze_urls(msg_obj, api_key):
         except Exception:
             global_results = None
         
-        url_list = safe_extract_urls_from_headers(msg_obj)
+        # CHANGED: Use the new complete URL extraction function
+        url_list = safe_extract_urls_from_email_complete(msg_obj)
         
         if not url_list:
             if COMPATIBLE_OUTPUT:
@@ -503,7 +630,7 @@ def analyze_urls(msg_obj, api_key):
             except Exception:
                 pass
 
-        # Display results with universal output system (NO builtin_print!)
+        # Display results with universal output system
         try:
             # Group results by verdict
             malicious_domains = [r for r in results if r['verdict'] == 'malicious']

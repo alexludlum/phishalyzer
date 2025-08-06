@@ -161,12 +161,12 @@ def highlight_hops(text):
         # Step 1: Apply defanging first
         processed_text = apply_defanging_if_enabled(text)
         
-        # Step 2: Highlight timestamps FIRST (blue) - complete timestamps including timezone
+        # Step 2: Highlight timestamps FIRST (bright blue) - complete timestamps including timezone
         def make_timestamp_blue(match):
             timestamp_text = match.group(0)
             # Check if already colored
             if '\033[' not in timestamp_text:
-                return f"\033[94m{timestamp_text}\033[0m"  # Bright Blue ANSI
+                return f"\033[94m{timestamp_text}\033[0m"  # Bright Blue ANSI (consistent)
             return timestamp_text
         
         # Apply all timestamp patterns

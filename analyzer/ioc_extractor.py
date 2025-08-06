@@ -73,6 +73,124 @@ def safe_extract_ips_from_headers(msg_obj):
             print(f"Error in IP extraction: {e}")
         return []
 
+def safe_extract_ips_from_body(msg_obj):
+    """NEW: Extract IP addresses from email body content including HTML"""
+    try:
+        if not msg_obj:
+            return []
+        
+        body_content = ""
+        
+        # Extract both plain text and HTML content
+        if hasattr(msg_obj, 'is_multipart') and msg_obj.is_multipart():
+            for part in msg_obj.walk():
+                try:
+                    if part.get_content_type() == "text/html":
+                        payload = part.get_payload(decode=True)
+                        if payload:
+                            html_content = payload.decode('utf-8', errors='ignore')
+                            # Strip HTML tags but keep the text content
+                            text_content = re.sub(r'<[^>]+>', ' ', html_content)
+                            body_content += text_content + " "
+                    
+                    elif part.get_content_type() == "text/plain":
+                        payload = part.get_payload(decode=True)
+                        if payload:
+                            plain_content = payload.decode('utf-8', errors='ignore')
+                            body_content += plain_content + " "
+                            
+                except Exception:
+                    continue
+        else:
+            # Single part message
+            try:
+                payload = msg_obj.get_payload(decode=True)
+                if payload:
+                    if isinstance(payload, bytes):
+                        content = payload.decode('utf-8', errors='ignore')
+                    else:
+                        content = str(payload)
+                    
+                    # If it contains HTML tags, strip them
+                    if '<' in content and '>' in content:
+                        content = re.sub(r'<[^>]+>', ' ', content)
+                    
+                    body_content += content
+            except Exception:
+                try:
+                    # Fallback to non-decoded payload
+                    payload = msg_obj.get_payload()
+                    if payload:
+                        body_content = str(payload)
+                except Exception:
+                    body_content = ""
+        
+        # Extract IPs using regex
+        ip_regex = r"\b(?:\d{1,3}\.){3}\d{1,3}\b"
+        
+        try:
+            ips = list(set(re.findall(ip_regex, body_content)))
+        except Exception as e:
+            if COMPATIBLE_OUTPUT:
+                print_status(f"Warning: Error extracting IPs from body: {e}", "warning")
+            else:
+                print(f"Warning: Error extracting IPs from body: {e}")
+            return []
+
+        # Filter out IP-like strings with leading zeros and validate ranges
+        def valid_ip(ip):
+            try:
+                parts = ip.split('.')
+                for p in parts:
+                    if len(p) > 1 and p.startswith('0'):
+                        return False
+                    # Validate each octet is 0-255
+                    if not (0 <= int(p) <= 255):
+                        return False
+                return True
+            except (ValueError, AttributeError):
+                return False
+
+        valid_ips = []
+        for ip in ips:
+            try:
+                if valid_ip(ip):
+                    valid_ips.append(ip)
+            except Exception:
+                continue
+        
+        return valid_ips
+        
+    except Exception as e:
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Error extracting IPs from body: {e}", "error")
+        else:
+            print(f"Error extracting IPs from body: {e}")
+        return []
+
+def safe_extract_ips_from_email_complete(msg_obj):
+    """NEW: Extract IP addresses from BOTH headers AND body content"""
+    try:
+        all_ips = []
+        
+        # 1. Extract from headers (existing logic)
+        header_ips = safe_extract_ips_from_headers(msg_obj)
+        all_ips.extend(header_ips)
+        
+        # 2. NEW: Extract from email body
+        body_ips = safe_extract_ips_from_body(msg_obj)
+        all_ips.extend(body_ips)
+        
+        # Remove duplicates and return
+        return list(set(all_ips))
+        
+    except Exception as e:
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Error in complete IP extraction: {e}", "error")
+        else:
+            print(f"Error in complete IP extraction: {e}")
+        return []
+
 def safe_is_private_ip(ip):
     """Safely check if IP is private with error handling."""
     try:
@@ -317,9 +435,10 @@ def check_ip_virustotal_with_country(ip, api_key, cache):
         return result
 
 def analyze_ips(msg_obj, api_key):
-    """Analyze IPs from email headers with comprehensive error handling and combined VT calls."""
+    """Analyze IPs from both email headers AND body content with comprehensive error handling."""
     try:
-        ip_list = safe_extract_ips_from_headers(msg_obj)
+        # CHANGED: Use the new complete IP extraction function
+        ip_list = safe_extract_ips_from_email_complete(msg_obj)
         
         if not ip_list:
             if COMPATIBLE_OUTPUT:

@@ -86,13 +86,14 @@ PHISHING_KEYWORDS = {
     
     "document_lure": {
         "name": "Document Lure",
-        "risk_level": "MEDIUM",
+        "risk_level": "HIGH",
         "keywords": [
             "view document", "download attachment", "open pdf", "shared file",
             "document expires", "file access", "download before", "view attachment",
-            "shared document", "file download", "document link"
+            "shared document", "file download", "document link", "file shared",
+            "compensation review", "view", "click here", "see attachment"
         ],
-        "description": "Lures victims to open potentially malicious documents"
+        "description": "Lures victims to open potentially malicious documents or links"
     },
     
     "tech_support_scam": {
@@ -173,36 +174,41 @@ PHISHING_KEYWORDS = {
     }
 }
 
-def safe_extract_email_body(msg_obj):
-    """Safely extract email body content with error handling."""
+def safe_extract_email_body_enhanced(msg_obj):
+    """Enhanced body extraction that preserves URLs and button text from HTML"""
     try:
         if not msg_obj:
             return ""
         
         body_content = ""
+        extracted_elements = []
         
         # Handle multipart messages
         if hasattr(msg_obj, 'is_multipart') and msg_obj.is_multipart():
             for part in msg_obj.walk():
                 try:
-                    if part.get_content_type() == "text/plain":
+                    if part.get_content_type() == "text/html":
                         payload = part.get_payload(decode=True)
                         if payload:
-                            if isinstance(payload, bytes):
-                                body_content += payload.decode('utf-8', errors='ignore') + "\n"
-                            else:
-                                body_content += str(payload) + "\n"
-                    elif part.get_content_type() == "text/html":
-                        # Strip HTML tags for text analysis
-                        payload = part.get_payload(decode=True)
-                        if payload:
-                            if isinstance(payload, bytes):
-                                html_content = payload.decode('utf-8', errors='ignore')
-                            else:
-                                html_content = str(payload)
-                            # Basic HTML tag removal
+                            html_content = payload.decode('utf-8', errors='ignore')
+                            
+                            # Extract button/link text BEFORE stripping HTML - this is the key fix!
+                            link_text = re.findall(r'<a[^>]*>([^<]+)</a>', html_content, re.IGNORECASE)
+                            button_text = re.findall(r'<button[^>]*>([^<]+)</button>', html_content, re.IGNORECASE)
+                            
+                            # Add extracted text to analysis content
+                            extracted_elements.extend(link_text + button_text)
+                            
+                            # Strip HTML tags for regular text analysis
                             text_content = re.sub(r'<[^>]+>', '', html_content)
                             body_content += text_content + "\n"
+                    
+                    elif part.get_content_type() == "text/plain":
+                        payload = part.get_payload(decode=True)
+                        if payload:
+                            plain_content = payload.decode('utf-8', errors='ignore')
+                            body_content += plain_content + "\n"
+                            
                 except Exception:
                     continue
         else:
@@ -211,9 +217,18 @@ def safe_extract_email_body(msg_obj):
                 payload = msg_obj.get_payload(decode=True)
                 if payload:
                     if isinstance(payload, bytes):
-                        body_content = payload.decode('utf-8', errors='ignore')
+                        content = payload.decode('utf-8', errors='ignore')
                     else:
-                        body_content = str(payload)
+                        content = str(payload)
+                    
+                    # Check if it's HTML and extract elements
+                    if '<' in content and '>' in content:
+                        link_text = re.findall(r'<a[^>]*>([^<]+)</a>', content, re.IGNORECASE)
+                        button_text = re.findall(r'<button[^>]*>([^<]+)</button>', content, re.IGNORECASE)
+                        extracted_elements.extend(link_text + button_text)
+                        content = re.sub(r'<[^>]+>', '', content)
+                    
+                    body_content += content
             except Exception:
                 try:
                     # Fallback to non-decoded payload
@@ -223,7 +238,12 @@ def safe_extract_email_body(msg_obj):
                 except Exception:
                     body_content = ""
         
-        return body_content.strip()
+        # Combine body content with extracted button/link text
+        final_content = body_content.strip()
+        if extracted_elements:
+            final_content += " " + " ".join(extracted_elements)
+        
+        return final_content.strip()
         
     except Exception as e:
         if COMPATIBLE_OUTPUT:
@@ -242,6 +262,18 @@ def extract_meaningful_words(text):
     # Extract meaningful words (3+ characters, alphabetic)
     words = re.findall(r'\b[a-zA-Z]{3,}\b', clean_text.lower())
     return words
+
+def analyze_email_subject(msg_obj):
+    """NEW: Analyze email subject for phishing indicators"""
+    try:
+        subject = msg_obj.get('Subject', '') if msg_obj else ''
+        if not subject:
+            return {}
+        
+        # Apply same keyword analysis to subject line
+        return analyze_keywords(subject)
+    except Exception:
+        return {}
 
 def fuzzy_match(keyword, text, threshold=0.8):
     """Improved fuzzy matching that avoids domain/technical false positives."""
@@ -470,10 +502,10 @@ def display_body_analysis_summary(findings, risk_score):
             print(f"Error displaying body analysis summary: {e}")
 
 def analyze_email_body(msg_obj, api_key=None):
-    """Main function to analyze email body content."""
+    """Main function to analyze email body content with enhanced subject analysis."""
     try:
-        # Extract body content
-        body_content = safe_extract_email_body(msg_obj)
+        # Extract body content using enhanced method
+        body_content = safe_extract_email_body_enhanced(msg_obj)
         
         if not body_content or len(body_content.strip()) == 0:
             if COMPATIBLE_OUTPUT:
@@ -482,10 +514,24 @@ def analyze_email_body(msg_obj, api_key=None):
                 print("No email body content found to analyze.")
             return None
         
-        # Analyze keywords
-        findings = analyze_keywords(body_content)
+        # NEW: Analyze subject line
+        subject_findings = analyze_email_subject(msg_obj)
         
-        # Calculate risk score
+        # Analyze body keywords
+        body_findings = analyze_keywords(body_content)
+        
+        # Combine body and subject findings
+        findings = body_findings.copy()
+        for category_id, finding in subject_findings.items():
+            if category_id in findings:
+                # Merge keywords if category already exists
+                findings[category_id]['matched_keywords'].extend(finding['matched_keywords'])
+                findings[category_id]['keyword_count'] += finding['keyword_count']
+            else:
+                # Add new category from subject
+                findings[category_id] = finding
+        
+        # Calculate risk score on combined findings
         risk_score = calculate_risk_score(findings)
         
         # Prepare results
@@ -493,7 +539,8 @@ def analyze_email_body(msg_obj, api_key=None):
             "findings": findings,
             "risk_score": risk_score,
             "body_length": len(body_content),
-            "categories_found": len(findings)
+            "categories_found": len(findings),
+            "subject_analyzed": len(subject_findings) > 0
         }
         
         # Display summary

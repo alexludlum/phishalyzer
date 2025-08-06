@@ -4,6 +4,39 @@ import extract_msg
 import os
 import sys
 
+def _detect_actual_file_type(file_path):
+    """
+    Detect actual file type by examining file content, not just extension.
+    This handles cases where .msg files are renamed to .eml
+    """
+    try:
+        with open(file_path, 'rb') as f:
+            # Read first 512 bytes for magic number detection
+            header = f.read(512)
+        
+        # MSG files start with OLE compound document magic bytes
+        if header.startswith(b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'):
+            return 'msg'
+        
+        # EML files are text-based, check for email headers
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                first_lines = [f.readline().strip().lower() for _ in range(10)]
+            
+            email_headers = ['from:', 'to:', 'subject:', 'date:', 'message-id:', 'received:']
+            header_count = sum(1 for line in first_lines if any(
+                line.startswith(header) for header in email_headers
+            ))
+            
+            if header_count >= 2:
+                return 'eml'
+        except:
+            pass
+        
+        return 'unknown'
+    except:
+        return 'unknown'
+
 def load_email(file_path):
     """
     Load .eml or .msg email file and return a parsed email.message.EmailMessage object.
@@ -42,19 +75,29 @@ def load_email(file_path):
     except OSError as e:
         raise ValueError(f"Cannot access file: {e}")
     
-    # Determine file type
+    # Determine file type by content first, then by extension
+    actual_type = _detect_actual_file_type(file_path)
     ext = os.path.splitext(file_path)[1].lower()
-    
-    if ext == ".eml":
+
+    if actual_type == "msg":
+        print(f"Detected MSG file (extension: {ext})")
+        return _load_msg_file(file_path)
+    elif actual_type == "eml":
+        print(f"Detected EML file (extension: {ext})")
+        return _load_eml_file(file_path)
+    elif ext == ".eml":
+        print("Attempting EML parsing based on extension...")
         return _load_eml_file(file_path)
     elif ext == ".msg":
+        print("Attempting MSG parsing based on extension...")
         return _load_msg_file(file_path)
     else:
         # Try to detect format by content if extension is missing/wrong
         try:
             return _detect_and_load_email(file_path)
         except Exception:
-            raise ValueError(f"Unsupported file type: {ext}. Supported types: .eml, .msg")
+            raise ValueError(f"Unsupported file type: {ext}. Supported types: .eml, .msg. "
+                            f"Content detection result: {actual_type}")
 
 def _load_eml_file(file_path):
     """Load .eml file with error handling."""
@@ -77,6 +120,14 @@ def _load_eml_file(file_path):
     except IOError as e:
         raise IOError(f"File I/O error: {e}")
     except Exception as e:
+        # Check if this might be a renamed MSG file
+        try:
+            actual_type = _detect_actual_file_type(file_path)
+            if actual_type == "msg":
+                raise ValueError(f"This appears to be a MSG file renamed as EML. "
+                               f"Try changing the extension to .msg or use MSG parser. Original error: {e}")
+        except:
+            pass
         raise Exception(f"Unexpected error parsing EML file: {e}")
 
 def _load_msg_file(file_path):

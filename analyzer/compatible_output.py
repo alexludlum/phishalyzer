@@ -93,11 +93,11 @@ class UniversalOutput:
     def __init__(self):
         self.use_colors = supports_color()
         self._color_map = {
-            # Basic colors
+            # Basic colors - UPDATED to use bright blue consistently
             'red': Colors.RED,
             'green': Colors.GREEN,
             'yellow': Colors.YELLOW,
-            'blue': Colors.BRIGHT_BLUE,
+            'blue': Colors.BRIGHT_BLUE,  # CHANGED: Use bright blue consistently
             'magenta': Colors.MAGENTA,
             'cyan': Colors.CYAN,
             'white': Colors.WHITE,

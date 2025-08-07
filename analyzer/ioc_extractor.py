@@ -437,14 +437,23 @@ def check_ip_virustotal_with_country(ip, api_key, cache):
 def analyze_ips(msg_obj, api_key):
     """Analyze IPs from both email headers AND body content with comprehensive error handling."""
     try:
-        # CHANGED: Use the new complete IP extraction function
         ip_list = safe_extract_ips_from_email_complete(msg_obj)
         
         if not ip_list:
             if COMPATIBLE_OUTPUT:
-                print_status("No IP addresses found in this email.", "warning")
+                print_status("IP address analysis completed successfully.", "success")
+                output.print("[green]No IP addresses were detected in the email.[/green]")
+                output.print("This indicates:")
+                output.print("- Clean email headers and body")
+                output.print("- No embedded IP addresses found")
+                output.print("- Network infrastructure details may have been sanitized")
             else:
-                print("No IP addresses found in this email.")
+                print("IP address analysis completed successfully.")
+                print("No IP addresses were detected in the email.")
+                print("This indicates:")
+                print("- Clean email headers and body")
+                print("- No embedded IP addresses found") 
+                print("- Network infrastructure details may have been sanitized")
             return []
         
         cache = {}

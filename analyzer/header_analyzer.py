@@ -442,9 +442,11 @@ def analyze_headers(msg_obj: Message):
                     print("[Use menu option 'View email routing hops' for full details]")
             else:
                 if COMPATIBLE_OUTPUT:
-                    output.print("[blue]Received Hops:[/blue] No Received headers found")
+                    output.print("[blue]Received Hops:[/blue] [yellow]No routing information found[/yellow]")
+                    output.print("[blue]This may indicate header sanitization or local processing[/blue]")
                 else:
-                    print("Received Hops: No Received headers found")
+                    print("Received Hops: No routing information found")
+                    print("This may indicate header sanitization or local processing")
 
         except Exception as e:
             if COMPATIBLE_OUTPUT:

@@ -559,11 +559,20 @@ def analyze_urls(msg_obj, api_key):
         
         if not url_list:
             if COMPATIBLE_OUTPUT:
-                print_status("No URLs found in this email.", "warning")
-                print_status("Please verify manually as URLs might be obfuscated or embedded within attachments.", "warning")
+                print_status("URL analysis completed successfully.", "success")
+                output.print("[green]No URLs were detected in the email body or headers.[/green]")
+                output.print("This could indicate:")
+                output.print("- Clean email with no external links")
+                output.print("- URLs may be obfuscated or embedded within attachments")
+                output.print("- Manual verification may still be needed")
             else:
-                print("No URLs found in this email.")
-                print("Please verify manually as URLs might be obfuscated or embedded within attachments.")
+                print("URL analysis completed successfully.")
+                print("No URLs were detected in the email body or headers.")
+                print("This could indicate:")
+                print("- Clean email with no external links")
+                print("- URLs may be obfuscated or embedded within attachments")
+                print("- Manual verification may still be needed")
+            
             if global_results:
                 try:
                     setattr(global_results, 'last_url_analysis_results', None)

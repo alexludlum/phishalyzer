@@ -1,18 +1,16 @@
 #!/usr/bin/env python3
 """
-Working diagnostic that fixes the len() issue
+Diagnostic to properly extract data from MSG attachments
 """
 
 import sys
 import os
-import email
-from email import policy
 import extract_msg
-import base64
+import io
 
-def working_conversion_test(file_path):
-    """Fixed conversion test"""
-    print("=== WORKING CONVERSION TEST ===")
+def diagnose_msg_data_extraction(file_path):
+    """Diagnose different methods to extract MSG attachment data"""
+    print("=== MSG DATA EXTRACTION DIAGNOSTIC ===")
     
     try:
         # Load MSG
@@ -26,141 +24,116 @@ def working_conversion_test(file_path):
             print(f"MSG has {len(attachments)} attachments")
             
             if attachments:
-                att = attachments[0]  # Just check first one
-                print("First attachment:")
+                att = attachments[0]  # Check first attachment
+                print("\nFirst attachment analysis:")
                 
-                # Check filename
+                # Get filename
                 filename = getattr(att, 'longFilename', None) or getattr(att, 'shortFilename', 'unknown')
                 print(f"  Filename: {filename}")
                 
-                # FIXED: Check data without using len() on Message object
-                data = getattr(att, 'data', None)
-                if data is not None:
-                    try:
-                        data_size = len(data)  # This should work on bytes
-                        print(f"  Data size: {data_size} bytes")
-                        if data_size > 0:
-                            print(f"  Magic: {data[:8].hex()}")
-                            if data.startswith(b'%PDF-'):
-                                print("  *** PDF DETECTED! ***")
-                        else:
-                            print("  Data is empty!")
-                            return
-                    except Exception as e:
-                        print(f"  Error checking data: {e}")
-                        return
-                else:
-                    print("  No data attribute!")
-                    return
-        else:
-            print("No attachments in MSG")
-            return
-        
-        # Test conversion
-        print("\nTesting conversion...")
-        
-        # Build minimal multipart email
-        boundary = "test-boundary"
-        
-        eml_parts = [
-            "Subject: Test conversion",
-            "MIME-Version: 1.0",
-            f"Content-Type: multipart/mixed; boundary=\"{boundary}\"",
-            "",
-            f"--{boundary}",
-            "Content-Type: text/plain",
-            "",
-            "Test body",
-            "",
-            f"--{boundary}",
-            "Content-Type: application/pdf",
-            f"Content-Disposition: attachment; filename=\"{filename}\"",
-            "Content-Transfer-Encoding: base64",
-            "",
-        ]
-        
-        # Add base64 data
-        if data and len(data) > 0:
-            try:
-                encoded = base64.b64encode(data).decode('ascii')
-                print(f"  Encoded to {len(encoded)} base64 characters")
+                # Check all attributes
+                print("  Available attributes:")
+                for attr in dir(att):
+                    if not attr.startswith('_'):
+                        try:
+                            value = getattr(att, attr)
+                            if not callable(value):
+                                print(f"    {attr}: {type(value)} = {repr(str(value)[:50])}")
+                        except:
+                            print(f"    {attr}: <error accessing>")
                 
-                # Add in 76-character chunks
-                for i in range(0, len(encoded), 76):
-                    eml_parts.append(encoded[i:i+76])
-            except Exception as e:
-                print(f"  Error encoding: {e}")
-                return
-        
-        eml_parts.extend([
-            "",
-            f"--{boundary}--"
-        ])
-        
-        eml_string = "\r\n".join(eml_parts)
-        print(f"Created EML string, {len(eml_string)} characters")
-        
-        # Test parsing
-        print("Testing EML parsing...")
-        try:
-            eml_bytes = eml_string.encode('utf-8', errors='replace')
-            parsed_msg = email.message_from_bytes(eml_bytes, policy=policy.default)
-            
-            print(f"Parsed OK:")
-            print(f"  Multipart: {parsed_msg.is_multipart()}")
-            print(f"  Content-Type: {parsed_msg.get_content_type()}")
-        except Exception as e:
-            print(f"  Parsing error: {e}")
-            return
-        
-        # Count attachments in parsed email
-        print("Checking for attachments in parsed email...")
-        attachment_count = 0
-        part_count = 0
-        
-        try:
-            for part in parsed_msg.walk():
-                part_count += 1
-                print(f"  Part {part_count}: {part.get_content_type()}")
-                
-                disposition = part.get_content_disposition()
-                if disposition == 'attachment':
-                    attachment_count += 1
-                    part_filename = part.get_filename()
-                    print(f"    *** ATTACHMENT FOUND: {part_filename} ***")
+                # Method 1: Direct data attribute
+                print("\n  Method 1: Direct .data attribute")
+                try:
+                    data = getattr(att, 'data', None)
+                    print(f"    Data type: {type(data)}")
                     
-                    # Test payload extraction
-                    try:
-                        payload = part.get_payload(decode=True)
-                        if payload:
-                            print(f"      Payload: {len(payload)} bytes")
-                            if payload.startswith(b'%PDF-'):
-                                print("      *** PDF MAGIC PRESERVED! ***")
-                            else:
-                                print(f"      Magic: {payload[:8].hex()}")
+                    if data is not None:
+                        if hasattr(data, '__len__') and not isinstance(data, extract_msg.Message):
+                            print(f"    Data length: {len(data)} bytes")
+                            if len(data) > 0:
+                                print(f"    First 16 bytes: {data[:16].hex()}")
+                                if data.startswith(b'%PDF-'):
+                                    print("    *** PDF MAGIC FOUND! ***")
                         else:
-                            print("      No payload")
-                    except Exception as e:
-                        print(f"      Payload error: {e}")
-        except Exception as e:
-            print(f"  Walk error: {e}")
-        
-        print(f"\n=== RESULTS ===")
-        print(f"Original MSG attachments: 1")
-        print(f"Converted email parts: {part_count}")
-        print(f"Detected attachments: {attachment_count}")
-        
-        if attachment_count > 0:
-            print("*** SUCCESS: Attachment conversion working! ***")
+                            print(f"    Data is not raw bytes (type: {type(data)})")
+                    else:
+                        print("    No .data attribute")
+                except Exception as e:
+                    print(f"    Error: {e}")
+                
+                # Method 2: Try save() method
+                print("\n  Method 2: Using .save() method")
+                try:
+                    if hasattr(att, 'save') and callable(att.save):
+                        buffer = io.BytesIO()
+                        att.save(buffer)
+                        saved_data = buffer.getvalue()
+                        print(f"    Saved data length: {len(saved_data)} bytes")
+                        if len(saved_data) > 0:
+                            print(f"    First 16 bytes: {saved_data[:16].hex()}")
+                            if saved_data.startswith(b'%PDF-'):
+                                print("    *** PDF MAGIC FOUND via save()! ***")
+                        buffer.close()
+                    else:
+                        print("    No .save() method available")
+                except Exception as e:
+                    print(f"    Save error: {e}")
+                
+                # Method 3: Check if it's an embedded message
+                print("\n  Method 3: Check for embedded message")
+                try:
+                    data = getattr(att, 'data', None)
+                    if isinstance(data, extract_msg.Message):
+                        print("    Attachment is an embedded message!")
+                        print("    This might be a nested MSG file")
+                        
+                        # Try to get the embedded message's attachments
+                        if hasattr(data, 'attachments'):
+                            nested_attachments = getattr(data, 'attachments', [])
+                            print(f"    Nested message has {len(nested_attachments)} attachments")
+                            
+                            if nested_attachments:
+                                nested_att = nested_attachments[0]
+                                nested_filename = getattr(nested_att, 'longFilename', None) or getattr(nested_att, 'shortFilename', 'unknown')
+                                print(f"    Nested attachment filename: {nested_filename}")
+                                
+                                nested_data = getattr(nested_att, 'data', None)
+                                if nested_data and hasattr(nested_data, '__len__'):
+                                    try:
+                                        print(f"    Nested data length: {len(nested_data)} bytes")
+                                        if len(nested_data) > 0:
+                                            print(f"    Nested first 16 bytes: {nested_data[:16].hex()}")
+                                            if nested_data.startswith(b'%PDF-'):
+                                                print("    *** PDF MAGIC FOUND in nested attachment! ***")
+                                    except:
+                                        print("    Nested data length check failed")
+                    else:
+                        print("    Not an embedded message")
+                except Exception as e:
+                    print(f"    Embedded message check error: {e}")
+                
+                # Method 4: Try alternative extraction
+                print("\n  Method 4: Alternative extraction methods")
+                try:
+                    # Check for raw content
+                    if hasattr(att, '_raw_data'):
+                        raw_data = getattr(att, '_raw_data', None)
+                        if raw_data:
+                            print(f"    Raw data found: {len(raw_data)} bytes")
+                    
+                    # Check for stream
+                    if hasattr(att, '_stream'):
+                        stream = getattr(att, '_stream', None)
+                        if stream:
+                            print(f"    Stream found: {type(stream)}")
+                            
+                except Exception as e:
+                    print(f"    Alternative extraction error: {e}")
+                
         else:
-            print("*** PROBLEM: No attachments detected ***")
+            print("No attachments found")
             
-            # Show EML structure for debugging
-            print("\nFirst 10 lines of EML:")
-            lines = eml_string.split('\n')
-            for i, line in enumerate(lines[:10]):
-                print(f"  {i}: {repr(line)}")
-        
     except Exception as e:
         print(f"Error: {e}")
         import traceback
@@ -168,7 +141,7 @@ def working_conversion_test(file_path):
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Usage: python working_diagnostic.py <msg_file_path>")
+        print("Usage: python msg_data_diagnostic.py <msg_file_path>")
         sys.exit(1)
     
-    working_conversion_test(sys.argv[1])
+    diagnose_msg_data_extraction(sys.argv[1])

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Fixed debug tool for Windows - handles encoding issues
+Diagnostic tool to debug MSG to EML conversion and attachment preservation
 """
 
 import sys
@@ -8,180 +8,156 @@ import os
 import email
 from email import policy
 import extract_msg
+import base64
+import mimetypes
+import re
 
-# Fix Windows encoding issues
-if sys.platform.startswith('win'):
-    # Set stdout encoding to handle Unicode
-    import codecs
-    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.detach())
-
-def safe_print(text):
-    """Safe print that handles encoding issues on Windows"""
+def debug_conversion_step_by_step(file_path):
+    """Debug the entire MSG->EML conversion process"""
+    print("=== MSG CONVERSION DIAGNOSTIC ===")
+    print("File: " + file_path)
+    print("")
+    
     try:
-        print(text)
-    except UnicodeEncodeError:
-        # Fallback to ASCII-safe characters
-        safe_text = text.replace('✓', '[OK]').replace('❌', '[ERROR]').replace('📧', '[EMAIL]').replace('📋', '[LIST]').replace('📊', '[SUMMARY]').replace('🔍', '[SEARCH]')
-        print(safe_text.encode('ascii', errors='replace').decode('ascii'))
-
-def debug_attachment_extraction(file_path):
-    """Debug attachment extraction step by step - Windows safe version"""
-    safe_print("=== ATTACHMENT EXTRACTION DEBUG ===")
-    safe_print(f"File: {file_path}")
-    safe_print("")
-    
-    # Step 1: Check file exists and size
-    if not os.path.exists(file_path):
-        safe_print("[ERROR] File does not exist!")
-        return
-    
-    file_size = os.path.getsize(file_path)
-    safe_print(f"[OK] File exists, size: {file_size:,} bytes")
-    
-    # Step 2: Determine file type
-    file_ext = os.path.splitext(file_path)[1].lower()
-    safe_print(f"[OK] File extension: {file_ext}")
-    
-    # Step 3: Try to load the email
-    try:
-        if file_ext == '.msg':
-            safe_print("[EMAIL] Loading as MSG file...")
-            msg = extract_msg.Message(file_path)
+        # Step 1: Load MSG
+        print("STEP 1: Loading MSG file...")
+        msg = extract_msg.Message(file_path)
+        print("MSG loaded successfully")
+        
+        # Step 2: Check MSG attachments
+        print("\nSTEP 2: Checking original MSG attachments...")
+        if hasattr(msg, 'attachments'):
+            attachments = getattr(msg, 'attachments', [])
+            print(f"Original attachments: {len(attachments)}")
             
-            # Debug MSG properties
-            safe_print(f"[EMAIL] MSG loaded. Properties:")
-            safe_print(f"   - Subject: {getattr(msg, 'subject', 'No subject')}")
-            safe_print(f"   - Sender: {getattr(msg, 'sender', 'No sender')}")
-            safe_print(f"   - Has attachments: {hasattr(msg, 'attachments')}")
-            
-            # Check MSG attachments directly
-            if hasattr(msg, 'attachments'):
-                msg_attachments = getattr(msg, 'attachments', [])
-                safe_print(f"   - MSG attachments count: {len(msg_attachments)}")
+            for i, att in enumerate(attachments):
+                print(f"\n  Original Attachment {i+1}:")
                 
-                for i, att in enumerate(msg_attachments):
-                    safe_print(f"      Attachment {i+1}:")
-                    if hasattr(att, 'longFilename'):
-                        safe_print(f"         Filename: {att.longFilename}")
-                    elif hasattr(att, 'shortFilename'):
-                        safe_print(f"         Filename: {att.shortFilename}")
-                    else:
-                        safe_print(f"         Filename: Unknown")
-                    
-                    if hasattr(att, 'data'):
-                        data_size = len(att.data) if att.data else 0
-                        safe_print(f"         Size: {data_size} bytes")
-                        if att.data and len(att.data) > 0:
-                            safe_print(f"         First 16 bytes: {att.data[:16].hex()}")
-            
-            # Convert MSG to email message for standard processing
-            eml_str = msg_to_eml_string(msg)
-            eml_bytes = eml_str.encode('utf-8', errors='replace')
-            msg_obj = email.message_from_bytes(eml_bytes, policy=policy.default)
-            
-        elif file_ext == '.eml':
-            safe_print("[EMAIL] Loading as EML file...")
-            with open(file_path, "rb") as f:
-                msg_obj = email.message_from_binary_file(f, policy=policy.default)
+                # Get all possible filename attributes
+                filename_attrs = ['longFilename', 'shortFilename', 'displayName', 'name']
+                filename = None
+                for attr in filename_attrs:
+                    if hasattr(att, attr):
+                        val = getattr(att, attr, None)
+                        if val:
+                            filename = str(val).strip()
+                            print(f"    {attr}: {filename}")
+                            break
+                
+                if not filename:
+                    filename = "no_filename_found"
+                    print(f"    Final filename: {filename}")
+                
+                # Check data
+                if hasattr(att, 'data') and att.data:
+                    data_size = len(att.data)
+                    print(f"    Data size: {data_size} bytes")
+                    print(f"    Magic bytes: {att.data[:8].hex()}")
+                    if att.data.startswith(b'%PDF-'):
+                        print("    *** PDF DETECTED ***")
+                else:
+                    print("    No data attribute")
         else:
-            safe_print(f"[ERROR] Unsupported file type: {file_ext}")
+            print("No 'attachments' attribute in MSG")
             return
+        
+        # Step 3: Test the conversion
+        print("\nSTEP 3: Converting MSG to EML...")
+        eml_string = improved_msg_to_eml_string(msg)
+        
+        # Show first part of EML string for debugging
+        print("EML string created, length: " + str(len(eml_string)))
+        print("First 500 characters:")
+        print(repr(eml_string[:500]))
+        print("")
+        
+        # Step 4: Parse the converted EML
+        print("STEP 4: Parsing converted EML...")
+        eml_bytes = eml_string.encode('utf-8', errors='replace')
+        msg_obj = email.message_from_bytes(eml_bytes, policy=policy.default)
+        
+        print("Parsed EML properties:")
+        print(f"  Is multipart: {msg_obj.is_multipart()}")
+        print(f"  Content-Type: {msg_obj.get_content_type()}")
+        print(f"  Has walk method: {hasattr(msg_obj, 'walk')}")
+        
+        # Step 5: Walk through converted parts
+        print("\nSTEP 5: Walking through converted email parts...")
+        attachment_count = 0
+        part_count = 0
+        
+        if hasattr(msg_obj, 'walk'):
+            for part in msg_obj.walk():
+                part_count += 1
+                print(f"\n  Part {part_count}:")
+                
+                try:
+                    content_type = part.get_content_type()
+                    print(f"    Content-Type: {content_type}")
+                    
+                    if hasattr(part, 'get_content_disposition'):
+                        disposition = part.get_content_disposition()
+                        print(f"    Content-Disposition: {disposition}")
+                        
+                        if disposition == 'attachment':
+                            attachment_count += 1
+                            filename = part.get_filename()
+                            print(f"    *** FOUND ATTACHMENT: {filename} ***")
+                            
+                            # Test payload extraction
+                            try:
+                                payload = part.get_payload(decode=True)
+                                if payload:
+                                    print(f"      Payload size: {len(payload)} bytes")
+                                    if payload.startswith(b'%PDF-'):
+                                        print("      *** PDF MAGIC PRESERVED! ***")
+                                    else:
+                                        print(f"      Magic: {payload[:8].hex()}")
+                                else:
+                                    print("      No payload")
+                            except Exception as e:
+                                print(f"      Payload error: {e}")
+                        
+                        elif disposition == 'inline':
+                            print(f"    Inline content (filename: {part.get_filename()})")
+                        
+                    else:
+                        print("    No Content-Disposition")
+                
+                except Exception as e:
+                    print(f"    Part error: {e}")
+        
+        # Step 6: Summary
+        print(f"\n=== CONVERSION SUMMARY ===")
+        print(f"Original MSG attachments: {len(getattr(msg, 'attachments', []))}")
+        print(f"Converted EML parts: {part_count}")
+        print(f"Detected attachments: {attachment_count}")
+        
+        if len(getattr(msg, 'attachments', [])) > 0 and attachment_count == 0:
+            print("*** PROBLEM: Attachments lost during conversion! ***")
             
-        safe_print("[OK] Email converted to standard format")
+            # Debug the EML string structure
+            print("\nDEBUGGING EML STRING STRUCTURE:")
+            lines = eml_string.split('\n')
+            boundary_lines = [i for i, line in enumerate(lines) if 'phishalyzer-boundary' in line]
+            print(f"Boundary lines found at: {boundary_lines}")
+            
+            attachment_lines = [i for i, line in enumerate(lines) if 'Content-Disposition: attachment' in line]
+            print(f"Attachment headers at: {attachment_lines}")
+            
+            if boundary_lines and not attachment_lines:
+                print("*** Boundaries exist but no attachment headers - conversion bug ***")
+            elif not boundary_lines:
+                print("*** No boundaries found - multipart not created ***")
         
     except Exception as e:
-        safe_print(f"[ERROR] Loading email: {e}")
-        return
-    
-    # Step 4: Check if multipart
-    safe_print(f"[EMAIL] Email structure analysis:")
-    safe_print(f"   - Is multipart: {msg_obj.is_multipart() if hasattr(msg_obj, 'is_multipart') else 'Unknown'}")
-    safe_print(f"   - Content-Type: {msg_obj.get_content_type() if hasattr(msg_obj, 'get_content_type') else 'Unknown'}")
-    
-    if hasattr(msg_obj, 'get_content_maintype'):
-        safe_print(f"   - Main type: {msg_obj.get_content_maintype()}")
-    
-    # Step 5: Walk through all parts
-    attachment_count = 0
-    part_count = 0
-    
-    safe_print(f"")
-    safe_print(f"[LIST] Walking through email parts:")
-    
-    if hasattr(msg_obj, 'walk'):
-        for part in msg_obj.walk():
-            part_count += 1
-            safe_print(f"")
-            safe_print(f"   Part {part_count}:")
-            
-            try:
-                content_type = part.get_content_type() if hasattr(part, 'get_content_type') else 'unknown'
-                safe_print(f"      Content-Type: {content_type}")
-                
-                if hasattr(part, 'get_content_disposition'):
-                    disposition = part.get_content_disposition()
-                    safe_print(f"      Content-Disposition: {disposition}")
-                    
-                    if disposition == 'attachment':
-                        attachment_count += 1
-                        filename = part.get_filename() if hasattr(part, 'get_filename') else 'No filename'
-                        safe_print(f"      [OK] ATTACHMENT FOUND: {filename}")
-                        
-                        # Try to get payload
-                        try:
-                            payload = part.get_payload(decode=True) if hasattr(part, 'get_payload') else None
-                            if payload:
-                                safe_print(f"         Payload size: {len(payload)} bytes")
-                                safe_print(f"         First 32 bytes (hex): {payload[:32].hex()}")
-                                
-                                # Check for PDF magic number
-                                if payload.startswith(b'%PDF-'):
-                                    safe_print(f"         [OK] PDF MAGIC NUMBER DETECTED!")
-                                else:
-                                    safe_print(f"         Magic bytes: {payload[:8]}")
-                            else:
-                                safe_print(f"         [ERROR] No payload found")
-                        except Exception as e:
-                            safe_print(f"         [ERROR] Error getting payload: {e}")
-                    
-                    elif disposition == 'inline':
-                        safe_print(f"      [INFO] Inline content (not attachment)")
-                        filename = part.get_filename() if hasattr(part, 'get_filename') else None
-                        if filename:
-                            safe_print(f"         Filename: {filename}")
-                    
-                    else:
-                        safe_print(f"      [INFO] Other disposition: {disposition}")
-                        
-                else:
-                    safe_print(f"      [INFO] No content-disposition")
-                    
-                # Check for Content-Type that might indicate attachment
-                if 'application/' in content_type or 'image/' in content_type:
-                    safe_print(f"      [INFO] Binary content type detected")
-                    
-            except Exception as e:
-                safe_print(f"      [ERROR] Error processing part: {e}")
-    else:
-        safe_print("   [ERROR] Email object has no 'walk' method")
-    
-    safe_print(f"")
-    safe_print(f"[SUMMARY] RESULTS:")
-    safe_print(f"   Total parts: {part_count}")
-    safe_print(f"   Attachments found: {attachment_count}")
-    
-    if attachment_count == 0:
-        safe_print(f"")
-        safe_print(f"[SEARCH] No attachments found. Possible reasons:")
-        safe_print(f"   1. MSG conversion lost attachment structure")
-        safe_print(f"   2. Attachment is embedded as 'inline' not 'attachment'")
-        safe_print(f"   3. Attachment is stored as OLE embedded object")
-        safe_print(f"   4. File is corrupted or not a standard MSG format")
-        safe_print(f"")
-        safe_print(f"[SEARCH] Try opening the file in Outlook to verify attachment exists")
+        print(f"Error in conversion diagnostic: {e}")
 
-def msg_to_eml_string(msg):
-    """Convert extract_msg.Message to EML string with better attachment handling"""
+def improved_msg_to_eml_string(msg):
+    """Improved MSG to EML conversion with extensive debugging"""
+    import base64
+    import mimetypes
+    
     headers = []
     
     try:
@@ -206,70 +182,132 @@ def msg_to_eml_string(msg):
             except Exception:
                 continue
         
-        # CRITICAL: Add multipart headers if attachments exist
-        if hasattr(msg, 'attachments') and getattr(msg, 'attachments', []):
+        # Check attachments
+        has_attachments = hasattr(msg, 'attachments') and getattr(msg, 'attachments', [])
+        print(f"DEBUG: has_attachments = {has_attachments}")
+        
+        if has_attachments:
+            attachments = getattr(msg, 'attachments', [])
+            print(f"DEBUG: Found {len(attachments)} attachments to convert")
+            
+            # Add multipart headers
             headers.append("MIME-Version: 1.0")
-            headers.append("Content-Type: multipart/mixed; boundary=\"attachment-boundary\"")
+            headers.append("Content-Type: multipart/mixed; boundary=\"phishalyzer-boundary\"")
+            print("DEBUG: Added multipart headers")
         
         if not headers:
             headers.append("Subject: [MSG File - Headers Unavailable]")
         
         headers.append("")  # Blank line
         
-        # Body
-        body_content = ""
+        # Build body
+        body_parts = []
+        
+        if has_attachments:
+            # Main body part
+            body_parts.append("--phishalyzer-boundary")
+            body_parts.append("Content-Type: text/plain; charset=utf-8")
+            body_parts.append("Content-Transfer-Encoding: 8bit")
+            body_parts.append("")
+            print("DEBUG: Added main body boundary")
+        
+        # Get body content
         try:
             body = getattr(msg, 'body', None) or getattr(msg, 'htmlBody', None) or ""
             if body:
                 body = str(body).replace('\r\n', '\n').replace('\r', '\n')
                 if len(body) > 1024 * 1024:
-                    body = body[:1024*1024] + "\n[... content truncated ...]"
+                    body = body[:1024*1024] + "\n[... truncated ...]"
             else:
                 body = "[No body content available]"
+        except Exception:
+            body = "[Error reading body content]"
+        
+        body_parts.append(body)
+        
+        # Process attachments
+        if has_attachments:
+            attachments = getattr(msg, 'attachments', [])
+            print(f"DEBUG: Processing {len(attachments)} attachments...")
             
-            # If we have attachments, format as multipart
-            if hasattr(msg, 'attachments') and getattr(msg, 'attachments', []):
-                body_content += "--attachment-boundary\n"
-                body_content += "Content-Type: text/plain\n\n"
-                body_content += body + "\n\n"
-                
-                # Add each attachment
-                for att in getattr(msg, 'attachments', []):
-                    try:
-                        filename = getattr(att, 'longFilename', None) or getattr(att, 'shortFilename', 'unknown')
-                        data = getattr(att, 'data', b'')
+            for att_idx, att in enumerate(attachments):
+                try:
+                    print(f"DEBUG: Processing attachment {att_idx + 1}")
+                    
+                    # Get filename
+                    filename = None
+                    filename_attrs = ['longFilename', 'shortFilename', 'displayName', 'name']
+                    for attr in filename_attrs:
+                        if hasattr(att, attr):
+                            val = getattr(att, attr, None)
+                            if val and str(val).strip():
+                                filename = str(val).strip()
+                                print(f"DEBUG: Got filename '{filename}' from {attr}")
+                                break
+                    
+                    if not filename:
+                        filename = f"attachment_{att_idx + 1}"
+                        print(f"DEBUG: Using default filename: {filename}")
+                    
+                    # Get data
+                    data = getattr(att, 'data', b'')
+                    print(f"DEBUG: Data size: {len(data) if data else 0} bytes")
+                    
+                    if data and len(data) > 0:
+                        # Determine content type
+                        content_type = "application/octet-stream"
+                        try:
+                            guessed_type, encoding = mimetypes.guess_type(filename)
+                            if guessed_type:
+                                content_type = guessed_type
+                        except:
+                            pass
                         
-                        body_content += f"--attachment-boundary\n"
-                        body_content += f"Content-Type: application/octet-stream\n"
-                        body_content += f"Content-Disposition: attachment; filename=\"{filename}\"\n"
-                        body_content += f"Content-Transfer-Encoding: base64\n\n"
+                        # Magic number override
+                        if data.startswith(b'%PDF-'):
+                            content_type = "application/pdf"
+                            print(f"DEBUG: Detected PDF magic, setting content-type to application/pdf")
                         
-                        if data:
-                            import base64
-                            encoded = base64.b64encode(data).decode('ascii')
-                            # Split into 76-character lines (RFC compliant)
-                            for i in range(0, len(encoded), 76):
-                                body_content += encoded[i:i+76] + "\n"
+                        print(f"DEBUG: Final content-type: {content_type}")
                         
-                        body_content += "\n"
-                    except Exception as e:
-                        safe_print(f"[ERROR] Error processing attachment in conversion: {e}")
+                        # Add attachment part
+                        body_parts.append("")
+                        body_parts.append("--phishalyzer-boundary")
+                        body_parts.append(f"Content-Type: {content_type}")
+                        body_parts.append(f"Content-Disposition: attachment; filename=\"{filename}\"")
+                        body_parts.append("Content-Transfer-Encoding: base64")
+                        body_parts.append("")
+                        
+                        # Encode as base64
+                        encoded = base64.b64encode(data).decode('ascii')
+                        for i in range(0, len(encoded), 76):
+                            body_parts.append(encoded[i:i+76])
+                        
+                        print(f"DEBUG: Added attachment part for {filename}")
+                    else:
+                        print(f"DEBUG: Skipping attachment {filename} - no data")
                 
-                body_content += "--attachment-boundary--\n"
-            else:
-                body_content = body
-                
-        except Exception as e:
-            body_content = f"[Error reading body content: {e}]"
-
-        return "\r\n".join(headers) + body_content
+                except Exception as e:
+                    print(f"DEBUG: Error processing attachment {att_idx + 1}: {e}")
+                    continue
+            
+            # Close multipart
+            body_parts.append("")
+            body_parts.append("--phishalyzer-boundary--")
+            print("DEBUG: Closed multipart structure")
+        
+        final_eml = "\r\n".join(headers) + "\r\n".join(body_parts)
+        print(f"DEBUG: Final EML length: {len(final_eml)} characters")
+        
+        return final_eml
         
     except Exception as e:
+        print(f"ERROR in conversion: {e}")
         return f"Subject: [MSG Parsing Error: {e}]\r\n\r\n[Could not parse MSG file content]"
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        safe_print("Usage: python debugger.py <email_file_path>")
+        print("Usage: python conversion_diagnostic.py <msg_file_path>")
         sys.exit(1)
     
-    debug_attachment_extraction(sys.argv[1])
+    debug_conversion_step_by_step(sys.argv[1])

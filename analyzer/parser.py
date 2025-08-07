@@ -197,11 +197,10 @@ def _detect_and_load_email(file_path):
     
     raise ValueError("Could not determine email file format or file is corrupted")
 
-
 def _msg_to_eml_string(msg):
     """
-    COMPLETELY FIXED: Converts extract_msg.Message to proper RFC822 string WITH CORRECT ATTACHMENTS.
-    This version properly preserves filenames, content types, and binary data.
+    ENHANCED: Converts extract_msg.Message to proper RFC822 string WITH NESTED ATTACHMENT SUPPORT.
+    This version handles embedded MSG files and extracts nested attachments.
 
     Args:
         msg (extract_msg.Message): Loaded .msg email.
@@ -238,10 +237,10 @@ def _msg_to_eml_string(msg):
                 # Skip this header if there's an error
                 continue
         
-        # CRITICAL FIX: Check if we have attachments
-        has_attachments = hasattr(msg, 'attachments') and getattr(msg, 'attachments', [])
+        # ENHANCED: Extract all attachments including nested ones
+        all_attachments = extract_all_attachments_recursive(msg)
         
-        if has_attachments:
+        if all_attachments:
             # Add multipart headers for attachment support
             headers.append("MIME-Version: 1.0")
             headers.append("Content-Type: multipart/mixed; boundary=\"phishalyzer-boundary\"")
@@ -255,7 +254,7 @@ def _msg_to_eml_string(msg):
         # Start building body content
         body_parts = []
         
-        if has_attachments:
+        if all_attachments:
             # Create main text part
             body_parts.append("--phishalyzer-boundary")
             body_parts.append("Content-Type: text/plain; charset=utf-8")
@@ -278,112 +277,84 @@ def _msg_to_eml_string(msg):
 
         body_parts.append(body)
         
-        # COMPLETELY FIXED: Add each attachment with proper metadata
-        if has_attachments:
-            attachments = getattr(msg, 'attachments', [])
-            
-            for att in attachments:
-                try:
-                    # FIXED: Get attachment filename using ALL possible methods
-                    filename = None
-                    if hasattr(att, 'longFilename') and att.longFilename:
-                        filename = str(att.longFilename).strip()
-                    elif hasattr(att, 'shortFilename') and att.shortFilename:
-                        filename = str(att.shortFilename).strip()
-                    elif hasattr(att, 'displayName') and att.displayName:
-                        filename = str(att.displayName).strip()
-                    elif hasattr(att, 'name') and att.name:
-                        filename = str(att.name).strip()
+        # ENHANCED: Add each attachment (including nested ones) with proper metadata
+        for att_info in all_attachments:
+            try:
+                filename = att_info['filename']
+                data = att_info['data']
+                source = att_info['source']
+                
+                if data and len(data) > 0:
+                    # Determine proper content type based on filename and magic numbers
+                    content_type = "application/octet-stream"  # Default
                     
-                    if not filename:
-                        filename = "unknown_attachment"
+                    # Try to guess MIME type from filename
+                    try:
+                        guessed_type, encoding = mimetypes.guess_type(filename)
+                        if guessed_type:
+                            content_type = guessed_type
+                    except Exception:
+                        pass
                     
-                    # FIXED: Get attachment data
-                    data = None
-                    if hasattr(att, 'data') and att.data:
-                        data = att.data
-                    elif hasattr(att, 'save') and callable(att.save):
-                        # Some MSG attachments need to be "saved" to get data
-                        try:
-                            import io
-                            buffer = io.BytesIO()
-                            att.save(buffer)
-                            data = buffer.getvalue()
-                        except Exception:
-                            data = getattr(att, 'data', b'')
+                    # Override with magic number detection for better accuracy
+                    try:
+                        if data.startswith(b'%PDF-'):
+                            content_type = "application/pdf"
+                        elif data.startswith(b'\xff\xd8\xff'):
+                            content_type = "image/jpeg"
+                        elif data.startswith(b'\x89PNG'):
+                            content_type = "image/png"
+                        elif data.startswith(b'GIF8'):
+                            content_type = "image/gif"
+                        elif data.startswith(b'PK\x03\x04'):
+                            content_type = "application/zip"
+                        elif data.startswith(b'MZ'):
+                            content_type = "application/x-msdownload"  # Executable
+                        elif data.startswith(b'\xd0\xcf\x11\xe0'):
+                            content_type = "application/vnd.ms-outlook"  # MSG/DOC/XLS
+                    except Exception:
+                        pass
+                    
+                    # Add MIME part for this attachment
+                    body_parts.append("")
+                    body_parts.append("--phishalyzer-boundary")
+                    body_parts.append(f"Content-Type: {content_type}")
+                    
+                    # Add source info in filename if nested
+                    if source == "nested":
+                        display_filename = f"{filename}"
+                        # Add a comment about nested source
+                        body_parts.append(f"Content-Disposition: attachment; filename=\"{display_filename}\"")
+                        body_parts.append("X-Phishalyzer-Source: nested-msg-attachment")
                     else:
-                        data = b''
+                        body_parts.append(f"Content-Disposition: attachment; filename=\"{filename}\"")
+                        body_parts.append("X-Phishalyzer-Source: direct-msg-attachment")
                     
-                    if data and len(data) > 0:
-                        # FIXED: Determine proper content type based on filename and magic numbers
-                        content_type = "application/octet-stream"  # Default
+                    body_parts.append("Content-Transfer-Encoding: base64")
+                    body_parts.append("")
+                    
+                    # Encode attachment data as base64
+                    try:
+                        encoded = base64.b64encode(data).decode('ascii')
                         
-                        # Try to guess MIME type from filename
-                        try:
-                            guessed_type, encoding = mimetypes.guess_type(filename)
-                            if guessed_type:
-                                content_type = guessed_type
-                        except Exception:
-                            pass
+                        # Split into 76-character lines (RFC compliant)
+                        for i in range(0, len(encoded), 76):
+                            body_parts.append(encoded[i:i+76])
+                    except Exception as e:
+                        body_parts.append(f"[Error encoding attachment data: {e}]")
                         
-                        # Override with magic number detection for better accuracy
-                        try:
-                            if data.startswith(b'%PDF-'):
-                                content_type = "application/pdf"
-                            elif data.startswith(b'\xff\xd8\xff'):
-                                content_type = "image/jpeg"
-                            elif data.startswith(b'\x89PNG'):
-                                content_type = "image/png"
-                            elif data.startswith(b'GIF8'):
-                                content_type = "image/gif"
-                            elif data.startswith(b'PK\x03\x04'):
-                                content_type = "application/zip"
-                            elif data.startswith(b'MZ'):
-                                content_type = "application/x-msdownload"  # Executable
-                            elif data.startswith(b'\xd0\xcf\x11\xe0'):
-                                content_type = "application/vnd.ms-outlook"  # MSG/DOC/XLS
-                        except Exception:
-                            pass
-                        
-                        # Add MIME part for this attachment
-                        body_parts.append("")
-                        body_parts.append("--phishalyzer-boundary")
-                        body_parts.append(f"Content-Type: {content_type}")
-                        body_parts.append(f"Content-Disposition: attachment; filename=\"{filename}\"")
-                        body_parts.append("Content-Transfer-Encoding: base64")
-                        body_parts.append("")
-                        
-                        # Encode attachment data as base64
-                        try:
-                            encoded = base64.b64encode(data).decode('ascii')
-                            
-                            # Split into 76-character lines (RFC compliant)
-                            for i in range(0, len(encoded), 76):
-                                body_parts.append(encoded[i:i+76])
-                        except Exception as e:
-                            body_parts.append(f"[Error encoding attachment data: {e}]")
-                        
-                    else:
-                        # Empty attachment - still add placeholder so it gets detected
-                        body_parts.append("")
-                        body_parts.append("--phishalyzer-boundary")
-                        body_parts.append("Content-Type: application/octet-stream")
-                        body_parts.append(f"Content-Disposition: attachment; filename=\"{filename}\"")
-                        body_parts.append("Content-Transfer-Encoding: base64")
-                        body_parts.append("")
-                        body_parts.append("[Empty attachment - no data]")
-                        
-                except Exception as e:
-                    # FIXED: Don't add error attachments that confuse the analyzer
-                    print(f"Warning: Error processing MSG attachment: {e}")
-                    continue
-            
+            except Exception as e:
+                # Log error but continue processing other attachments
+                print(f"Warning: Error processing attachment {att_info.get('filename', 'unknown')}: {e}")
+                continue
+        
+        if all_attachments:
             # Close multipart structure
             body_parts.append("")
             body_parts.append("--phishalyzer-boundary--")
         
         # Combine headers and body
-        if has_attachments:
+        if all_attachments:
             return "\r\n".join(headers) + "\r\n".join(body_parts)
         else:
             return "\r\n".join(headers) + body
@@ -391,3 +362,92 @@ def _msg_to_eml_string(msg):
     except Exception as e:
         # Return minimal valid email if everything fails
         return f"Subject: [MSG Parsing Error: {e}]\r\n\r\n[Could not parse MSG file content]"
+
+def extract_all_attachments_recursive(msg):
+    """
+    ENHANCED: Extract all attachments from MSG, including nested embedded messages.
+    
+    Returns:
+        List of dicts with 'filename', 'data', 'source' keys
+    """
+    all_attachments = []
+    
+    try:
+        if hasattr(msg, 'attachments'):
+            attachments = getattr(msg, 'attachments', [])
+            
+            for att in attachments:
+                try:
+                    # Get filename using multiple methods
+                    filename = None
+                    filename_attrs = ['longFilename', 'shortFilename', 'displayName', 'name']
+                    for attr in filename_attrs:
+                        if hasattr(att, attr):
+                            val = getattr(att, attr, None)
+                            if val and str(val).strip():
+                                filename = str(val).strip()
+                                break
+                    
+                    if not filename:
+                        filename = f"unknown_attachment_{len(all_attachments)+1}"
+                    
+                    # Get data - handle both direct data and embedded messages
+                    data = getattr(att, 'data', None)
+                    
+                    if data is not None:
+                        # Check if it's an embedded message (nested MSG)
+                        if hasattr(data, 'attachments'):  # It's an embedded message
+                            print(f"Found embedded message: {filename}")
+                            
+                            # Recursively extract attachments from embedded message
+                            nested_attachments = extract_all_attachments_recursive(data)
+                            
+                            # Add all nested attachments to our list
+                            for nested_att in nested_attachments:
+                                nested_att['source'] = 'nested'
+                                all_attachments.append(nested_att)
+                                print(f"  Extracted nested attachment: {nested_att['filename']}")
+                            
+                        elif hasattr(data, '__len__') and len(data) > 0:
+                            # It's direct binary data
+                            all_attachments.append({
+                                'filename': filename,
+                                'data': data,
+                                'source': 'direct'
+                            })
+                            print(f"Extracted direct attachment: {filename}")
+                        
+                        # Also try save() method if available
+                        elif hasattr(att, 'save') and callable(att.save):
+                            try:
+                                import io
+                                buffer = io.BytesIO()
+                                # Some save methods take no arguments
+                                try:
+                                    att.save(buffer)
+                                except TypeError:
+                                    # Try without buffer
+                                    saved_data = att.save()
+                                    if saved_data:
+                                        buffer.write(saved_data)
+                                
+                                saved_data = buffer.getvalue()
+                                if len(saved_data) > 0:
+                                    all_attachments.append({
+                                        'filename': filename,
+                                        'data': saved_data,
+                                        'source': 'saved'
+                                    })
+                                    print(f"Extracted via save(): {filename}")
+                                buffer.close()
+                            except Exception as e:
+                                print(f"Save method failed for {filename}: {e}")
+                        
+                except Exception as e:
+                    print(f"Error processing attachment: {e}")
+                    continue
+                    
+    except Exception as e:
+        print(f"Error in recursive attachment extraction: {e}")
+    
+    return all_attachments

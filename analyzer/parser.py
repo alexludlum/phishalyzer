@@ -199,15 +199,17 @@ def _detect_and_load_email(file_path):
 
 def _msg_to_eml_string(msg):
     """
-    Converts extract_msg.Message to a simplified RFC822 string for parsing.
-    Includes error handling for missing or corrupted data.
+    FIXED: Converts extract_msg.Message to a proper RFC822 string WITH ATTACHMENTS.
+    This version preserves attachment structure during MSG->EML conversion.
 
     Args:
         msg (extract_msg.Message): Loaded .msg email.
 
     Returns:
-        str: String in RFC822 format.
+        str: String in RFC822 format with proper multipart structure.
     """
+    import base64
+    
     headers = []
     
     try:
@@ -234,12 +236,30 @@ def _msg_to_eml_string(msg):
                 # Skip this header if there's an error
                 continue
         
+        # CRITICAL FIX: Check if we have attachments
+        has_attachments = hasattr(msg, 'attachments') and getattr(msg, 'attachments', [])
+        
+        if has_attachments:
+            # Add multipart headers for attachment support
+            headers.append("MIME-Version: 1.0")
+            headers.append("Content-Type: multipart/mixed; boundary=\"phishalyzer-boundary\"")
+        
         # Add a minimal required header if none found
         if not headers:
             headers.append("Subject: [MSG File - Headers Unavailable]")
         
         headers.append("")  # Blank line to separate headers from body
 
+        # Start building body content
+        body_parts = []
+        
+        if has_attachments:
+            # Create main text part
+            body_parts.append("--phishalyzer-boundary")
+            body_parts.append("Content-Type: text/plain; charset=utf-8")
+            body_parts.append("Content-Transfer-Encoding: 8bit")
+            body_parts.append("")
+        
         # Extract body safely
         try:
             body = getattr(msg, 'body', None) or getattr(msg, 'htmlBody', None) or ""
@@ -254,7 +274,74 @@ def _msg_to_eml_string(msg):
         except Exception:
             body = "[Error reading body content]"
 
-        return "\r\n".join(headers) + body
+        body_parts.append(body)
+        
+        # CRITICAL FIX: Add each attachment as a proper MIME part
+        if has_attachments:
+            attachments = getattr(msg, 'attachments', [])
+            
+            for att in attachments:
+                try:
+                    # Get attachment filename (try multiple methods)
+                    filename = None
+                    if hasattr(att, 'longFilename') and att.longFilename:
+                        filename = att.longFilename
+                    elif hasattr(att, 'shortFilename') and att.shortFilename:
+                        filename = att.shortFilename
+                    elif hasattr(att, 'displayName') and att.displayName:
+                        filename = att.displayName
+                    else:
+                        filename = "unknown_attachment"
+                    
+                    # Get attachment data
+                    data = getattr(att, 'data', b'')
+                    
+                    if data and len(data) > 0:
+                        # Add MIME part for this attachment
+                        body_parts.append("")
+                        body_parts.append("--phishalyzer-boundary")
+                        body_parts.append("Content-Type: application/octet-stream")
+                        body_parts.append(f"Content-Disposition: attachment; filename=\"{filename}\"")
+                        body_parts.append("Content-Transfer-Encoding: base64")
+                        body_parts.append("")
+                        
+                        # Encode attachment data as base64
+                        try:
+                            encoded = base64.b64encode(data).decode('ascii')
+                            
+                            # Split into 76-character lines (RFC compliant)
+                            for i in range(0, len(encoded), 76):
+                                body_parts.append(encoded[i:i+76])
+                        except Exception as e:
+                            body_parts.append(f"[Error encoding attachment: {e}]")
+                        
+                    else:
+                        # Empty attachment - still add placeholder
+                        body_parts.append("")
+                        body_parts.append("--phishalyzer-boundary")
+                        body_parts.append("Content-Type: application/octet-stream")
+                        body_parts.append(f"Content-Disposition: attachment; filename=\"{filename}\"")
+                        body_parts.append("")
+                        body_parts.append("[Empty attachment]")
+                        
+                except Exception as e:
+                    # Add error placeholder for failed attachment
+                    body_parts.append("")
+                    body_parts.append("--phishalyzer-boundary")
+                    body_parts.append("Content-Type: text/plain")
+                    body_parts.append("Content-Disposition: attachment; filename=\"error_attachment\"")
+                    body_parts.append("")
+                    body_parts.append(f"[Error processing attachment: {e}]")
+            
+            # Close multipart structure
+            body_parts.append("")
+            body_parts.append("--phishalyzer-boundary--")
+        
+        # Combine headers and body
+        if has_attachments:
+            return "\r\n".join(headers) + "\r\n".join(body_parts)
+        else:
+            return "\r\n".join(headers) + body
         
     except Exception as e:
         # Return minimal valid email if everything fails

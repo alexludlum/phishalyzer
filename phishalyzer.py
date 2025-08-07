@@ -26,6 +26,7 @@ output_mode = "fanged"  # default output mode - accessible globally
 last_url_analysis_results = None
 last_received_hops = None
 last_body_analysis_results = None
+last_attachment_results = None
 
 def check_defang_mode():
     """Debug function to check current defang mode"""
@@ -581,7 +582,9 @@ def run_analysis(file_path, vt_api_key):
         # Attachment analysis
         try:
             print_section_header("ATTACHMENT ANALYSIS")
-            attachment_analyzer.analyze_attachments(msg_obj, api_key=vt_api_key)
+            attachment_results = attachment_analyzer.analyze_attachments(msg_obj, api_key=vt_api_key)
+            global last_attachment_results
+            last_attachment_results = attachment_results
         except Exception as e:
             if COMPATIBLE_OUTPUT:
                 print_status(f"Error during attachment analysis: {e}", "error")
@@ -840,6 +843,207 @@ def view_received_hops():
         else:
             print(f"Error displaying hops: {e}")
 
+def view_url_findings():
+    """Display comprehensive URL analysis from both email and attachments."""
+    global last_url_analysis_results, last_attachment_results
+    
+    # Check if we have any URL data
+    email_urls = last_url_analysis_results or []
+    attachment_urls = []
+    
+    # Extract URL data from attachment results
+    if last_attachment_results:
+        for attachment in last_attachment_results:
+            content_analysis = attachment.get('attachment_content_analysis', {})
+            if content_analysis.get('url_analysis', {}).get('results'):
+                attachment_urls.append({
+                    'attachment_name': attachment.get('filename', 'unknown'),
+                    'attachment_index': attachment.get('index', '?'),
+                    'url_results': content_analysis['url_analysis']['results']
+                })
+    
+    if not email_urls and not attachment_urls:
+        if COMPATIBLE_OUTPUT:
+            print_status("No URL analysis results available. Run an analysis first.", "warning")
+        else:
+            print("No URL analysis results available. Run an analysis first.")
+        return
+    
+    try:
+        print_section_header("URL FINDINGS")
+        
+        # SECTION 1: URLs from Email Body
+        if email_urls:
+            if COMPATIBLE_OUTPUT:
+                output.print("[magenta]URLs FOUND IN EMAIL BODY[/magenta]\n")
+            else:
+                print("URLs FOUND IN EMAIL BODY\n")
+            
+            for i, result in enumerate(email_urls):
+                if i > 0:
+                    if COMPATIBLE_OUTPUT:
+                        output.print("")
+                    else:
+                        print()
+                
+                domain = result['domain']
+                urls = result['urls']
+                verdict = result['verdict']
+                
+                # Apply defanging to domain
+                display_domain = apply_defanging(domain)
+                
+                # Build and display the header with proper color handling
+                if COMPATIBLE_OUTPUT:
+                    escaped_domain = output.escape(display_domain)
+                    
+                    if verdict == "malicious":
+                        verdict_colored = output.colorize("MALICIOUS", "red")
+                    elif verdict == "suspicious":
+                        verdict_colored = output.colorize("SUSPICIOUS", "orange3")
+                    elif verdict == "benign":
+                        verdict_colored = output.colorize("BENIGN", "green")
+                    else:
+                        verdict_colored = output.colorize("UNCHECKED", "orange3")
+                    
+                    header_text = f"{escaped_domain} - {verdict_colored} ({len(urls)} URL{'s' if len(urls) != 1 else ''}):"
+                    print(header_text)
+                else:
+                    clean_verdict = verdict.upper()
+                    print(f"{display_domain} - {clean_verdict} ({len(urls)} URL{'s' if len(urls) != 1 else ''}):")
+                
+                # Display each URL with defanging
+                for j, url in enumerate(urls, 1):
+                    display_url = apply_defanging(url)
+                    escaped_url = output.escape(display_url) if COMPATIBLE_OUTPUT else display_url
+                    
+                    url_line = f"  {j:2}. {escaped_url}"
+                    if COMPATIBLE_OUTPUT:
+                        output.print(url_line)
+                    else:
+                        print(f"  {j:2}. {display_url}")
+        
+        # SECTION 2: URLs from Attachments
+        if attachment_urls:
+            if email_urls:
+                if COMPATIBLE_OUTPUT:
+                    output.print("\n")
+                else:
+                    print("\n")
+            
+            if COMPATIBLE_OUTPUT:
+                output.print("[magenta]URLs FOUND IN ATTACHMENTS[/magenta]\n")
+            else:
+                print("URLs FOUND IN ATTACHMENTS\n")
+            
+            for attachment_data in attachment_urls:
+                attachment_name = attachment_data['attachment_name']
+                attachment_index = attachment_data['attachment_index']
+                url_results = attachment_data['url_results']
+                
+                # Display attachment header
+                display_attachment_name = apply_defanging(attachment_name)
+                escaped_attachment_name = output.escape(display_attachment_name) if COMPATIBLE_OUTPUT else display_attachment_name
+                
+                if COMPATIBLE_OUTPUT:
+                    output.print(f"[blue]From Attachment {attachment_index}: {escaped_attachment_name}[/blue]")
+                else:
+                    print(f"From Attachment {attachment_index}: {escaped_attachment_name}")
+                
+                # Display URL results for this attachment
+                for i, result in enumerate(url_results):
+                    if i > 0:
+                        if COMPATIBLE_OUTPUT:
+                            output.print("")
+                        else:
+                            print()
+                    
+                    domain = result['domain']
+                    urls = result['urls']
+                    verdict = result['verdict']
+                    
+                    # Apply defanging to domain
+                    display_domain = apply_defanging(domain)
+                    
+                    # Build and display the header
+                    if COMPATIBLE_OUTPUT:
+                        escaped_domain = output.escape(display_domain)
+                        
+                        if verdict == "malicious":
+                            verdict_colored = output.colorize("MALICIOUS", "red")
+                        elif verdict == "suspicious":
+                            verdict_colored = output.colorize("SUSPICIOUS", "orange3")
+                        elif verdict == "benign":
+                            verdict_colored = output.colorize("BENIGN", "green")
+                        else:
+                            verdict_colored = output.colorize("UNCHECKED", "orange3")
+                        
+                        header_text = f"  {escaped_domain} - {verdict_colored} ({len(urls)} URL{'s' if len(urls) != 1 else ''}):"
+                        print(header_text)
+                    else:
+                        clean_verdict = verdict.upper()
+                        print(f"  {display_domain} - {clean_verdict} ({len(urls)} URL{'s' if len(urls) != 1 else ''}):")
+                    
+                    # Display each URL
+                    for j, url in enumerate(urls, 1):
+                        display_url = apply_defanging(url)
+                        escaped_url = output.escape(display_url) if COMPATIBLE_OUTPUT else display_url
+                        
+                        url_line = f"    {j:2}. {escaped_url}"
+                        if COMPATIBLE_OUTPUT:
+                            output.print(url_line)
+                        else:
+                            print(f"    {j:2}. {display_url}")
+                
+                if COMPATIBLE_OUTPUT:
+                    output.print("")  # Blank line between attachments
+                else:
+                    print()
+        
+        # SUMMARY
+        email_url_count = sum(len(r['urls']) for r in email_urls) if email_urls else 0
+        email_domain_count = len(email_urls) if email_urls else 0
+        
+        attachment_url_count = 0
+        attachment_domain_count = 0
+        if attachment_urls:
+            for attachment_data in attachment_urls:
+                url_results = attachment_data['url_results']
+                attachment_url_count += sum(len(r['urls']) for r in url_results)
+                attachment_domain_count += len(url_results)
+        
+        total_urls = email_url_count + attachment_url_count
+        total_domains = email_domain_count + attachment_domain_count
+        
+        if COMPATIBLE_OUTPUT:
+            output.print(f"\n[blue]SUMMARY:[/blue]")
+            if email_urls:
+                output.print(f"Email body: {email_url_count} URL{'s' if email_url_count != 1 else ''} across {email_domain_count} domain{'s' if email_domain_count != 1 else ''}")
+            if attachment_urls:
+                attachment_count = len(attachment_urls)
+                output.print(f"Attachments: {attachment_url_count} URL{'s' if attachment_url_count != 1 else ''} across {attachment_domain_count} domain{'s' if attachment_domain_count != 1 else ''} in {attachment_count} file{'s' if attachment_count != 1 else ''}")
+            output.print(f"Total: {total_urls} URL{'s' if total_urls != 1 else ''} across {total_domains} domain{'s' if total_domains != 1 else ''}")
+        else:
+            print(f"\nSUMMARY:")
+            if email_urls:
+                print(f"Email body: {email_url_count} URL{'s' if email_url_count != 1 else ''} across {email_domain_count} domain{'s' if email_domain_count != 1 else ''}")
+            if attachment_urls:
+                attachment_count = len(attachment_urls)
+                print(f"Attachments: {attachment_url_count} URL{'s' if attachment_url_count != 1 else ''} across {attachment_domain_count} domain{'s' if attachment_domain_count != 1 else ''} in {attachment_count} file{'s' if attachment_count != 1 else ''}")
+            print(f"Total: {total_urls} URL{'s' if total_urls != 1 else ''} across {total_domains} domain{'s' if total_domains != 1 else ''}")
+        
+        # Return prompt
+        try:
+            safe_input("\nPress Enter to return to main menu...")
+        except:
+            pass
+                
+    except Exception as e:
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Error displaying URL findings: {e}", "error")
+        else:
+            print(f"Error displaying URL findings: {e}")
+
 def main():
     """Main application entry point with comprehensive error handling."""
     global output_mode, last_url_analysis_results, last_received_hops, last_body_analysis_results
@@ -868,8 +1072,11 @@ def main():
             try:
                 # Build menu options dynamically
                 menu_options = []
-                if last_url_analysis_results:
-                    menu_options.append(("4", "View collapsed URL variations"))
+                if last_url_analysis_results or (last_attachment_results and any(
+                    a.get('attachment_content_analysis', {}).get('url_analysis', {}).get('results') 
+                    for a in last_attachment_results
+                )):
+                    menu_options.append(("4", "View URL findings"))
                 if last_body_analysis_results:
                     next_num = str(len(menu_options) + 4)
                     menu_options.append((next_num, "View body analysis details"))
@@ -951,10 +1158,12 @@ def main():
                         continue
                         
                 elif choice == "4":
-                    if last_url_analysis_results:
-                        # View URL details
+                    if last_url_analysis_results or (last_attachment_results and any(
+                        a.get('attachment_content_analysis', {}).get('url_analysis', {}).get('results') 
+                        for a in last_attachment_results
+                    )):
                         try:
-                            view_collapsed_urls()
+                            view_url_findings()
                         except Exception as e:
                             if COMPATIBLE_OUTPUT:
                                 print_status(f"Error viewing URL details: {e}", "error")

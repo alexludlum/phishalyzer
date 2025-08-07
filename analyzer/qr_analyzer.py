@@ -293,32 +293,34 @@ def analyze_pdf_qr_codes(attachment_result, api_key):
         'urls_found': [r for r in qr_results if 'url' in r]
     }
 
+# Replace the display_qr_analysis function in qr_analyzer.py:
+
 def display_qr_analysis(attachment_index, qr_analysis):
     """Display QR code analysis results with proper formatting."""
     if qr_analysis.get('error'):
         if COMPATIBLE_OUTPUT:
             if "Missing dependencies" in qr_analysis['error']:
-                output.print(f"  [orange3]QR Analysis: {output.escape(qr_analysis['error'])}[/orange3]")
+                output.print(f"QR Analysis: [orange3]{output.escape(qr_analysis['error'])}[/orange3]")
             else:
-                output.print(f"  QR Analysis: {output.escape(qr_analysis['error'])}")
+                output.print(f"QR Analysis: {output.escape(qr_analysis['error'])}")
         else:
-            print(f"  QR Analysis: {qr_analysis['error']}")
+            print(f"QR Analysis: {qr_analysis['error']}")
         return
     
     if not qr_analysis.get('qr_found'):
         if COMPATIBLE_OUTPUT:
-            output.print("  QR Analysis: No QR codes detected")
+            output.print("QR Analysis: No QR codes detected")
         else:
-            print("  QR Analysis: No QR codes detected")
+            print("QR Analysis: No QR codes detected")
         return
     
-    # QR codes detected header
+    # QR codes detected header (same level as other main sections)
     if COMPATIBLE_OUTPUT:
-        output.print("  [red]QR Code Detected! Details:[/red]")
+        output.print("[red]QR Code Detected! Details:[/red]")
     else:
-        print("  QR Code Detected! Details:")
+        print("QR Code Detected! Details:")
     
-    # Display each QR code
+    # Display each QR code with bullet points
     for i, qr in enumerate(qr_analysis.get('qr_results', []), 1):
         if 'url' in qr:
             # URL QR code
@@ -326,16 +328,16 @@ def display_qr_analysis(attachment_index, qr_analysis):
             verdict = qr['verdict']
             comment = qr['comment']
             
-            # QR code URL line with "Destination:"
+            # QR code URL line with "Destination:" (bullet point format)
             display_url = defanger.defang_url(url) if defanger.should_defang() else url
             escaped_url = output.escape(display_url) if COMPATIBLE_OUTPUT else display_url
             
             if COMPATIBLE_OUTPUT:
-                output.print(f"    QR {i} (Page {qr['page']}) Destination: [yellow]{escaped_url}[/yellow]")
+                output.print(f"- QR {i} (Page {qr['page']}) Destination: [yellow]{escaped_url}[/yellow]")
             else:
-                print(f"    QR {i} (Page {qr['page']}) Destination: {escaped_url}")
+                print(f"- QR {i} (Page {qr['page']}) Destination: {escaped_url}")
             
-            # Verdict line with consistent color scheme
+            # Verdict line with consistent color scheme (bullet point format)
             verdict_colors = {
                 "malicious": "red",
                 "suspicious": "yellow",
@@ -346,17 +348,17 @@ def display_qr_analysis(attachment_index, qr_analysis):
             escaped_comment = output.escape(comment) if COMPATIBLE_OUTPUT else comment
             
             if COMPATIBLE_OUTPUT:
-                output.print(f"    Verdict: [{verdict_color}]{verdict.upper()}[/{verdict_color}] ({escaped_comment})")
+                output.print(f"- Verdict: [{verdict_color}]{verdict.upper()}[/{verdict_color}] ({escaped_comment})")
             else:
-                print(f"    Verdict: {verdict.upper()} ({escaped_comment})")
+                print(f"- Verdict: {verdict.upper()} ({escaped_comment})")
         else:
             # Non-URL QR code
             escaped_data = output.escape(qr['data']) if COMPATIBLE_OUTPUT else qr['data']
             escaped_type = output.escape(qr['type']) if COMPATIBLE_OUTPUT else qr['type']
             
             if COMPATIBLE_OUTPUT:
-                output.print(f"    QR {i} (Page {qr['page']}) Data: {escaped_data}")
-                output.print(f"    Type: {escaped_type}")
+                output.print(f"- QR {i} (Page {qr['page']}) Data: {escaped_data}")
+                output.print(f"- Type: {escaped_type}")
             else:
-                print(f"    QR {i} (Page {qr['page']}) Data: {escaped_data}")
-                print(f"    Type: {escaped_type}")
+                print(f"- QR {i} (Page {qr['page']}) Data: {escaped_data}")
+                print(f"- Type: {escaped_type}")

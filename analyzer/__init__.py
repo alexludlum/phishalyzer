@@ -10,6 +10,7 @@ from . import qr_analyzer
 from . import defanger
 from . import compatible_output
 from . import body_analyzer
+from . import attachment_content_analyzer
 
 __all__ = [
     'parser',

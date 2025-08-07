@@ -450,9 +450,9 @@ def display_body_analysis_summary(findings, risk_score):
     try:
         if not findings:
             if COMPATIBLE_OUTPUT:
-                output.print("[green]No phishing indicators detected in email body.[/green]")
+                output.print("[green]No phishing phrases detected in email body.[/green]")
             else:
-                print("No phishing indicators detected in email body.")
+                print("No phishing phrases detected in email body.")
             return
         
         # Determine risk score color

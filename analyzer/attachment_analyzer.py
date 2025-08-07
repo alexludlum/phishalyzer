@@ -16,6 +16,13 @@ except ImportError:
 from . import qr_analyzer
 from . import defanger
 
+# NEW: Import the content analysis module
+try:
+    from . import attachment_content_analyzer
+    CONTENT_ANALYSIS_AVAILABLE = True
+except ImportError:
+    CONTENT_ANALYSIS_AVAILABLE = False
+
 # Network request timeout settings
 REQUEST_TIMEOUT = 10
 MAX_RETRIES = 3
@@ -124,7 +131,7 @@ ARCHIVE_EXTENSIONS = {
 
 def detect_file_type_from_content(content, max_check_bytes=512):
     """
-    NEW: Detect actual file type from content using magic numbers.
+    Detect actual file type from content using magic numbers.
     Returns detected type or None if unknown.
     """
     if not content or len(content) < 4:
@@ -154,7 +161,7 @@ def detect_file_type_from_content(content, max_check_bytes=512):
 
 def detect_extension_spoofing(filename, detected_type, claimed_content_type):
     """
-    NEW: Detect if file extension doesn't match actual content.
+    Detect if file extension doesn't match actual content.
     Returns (is_spoofed, risk_description)
     """
     if not filename or not detected_type:
@@ -219,7 +226,7 @@ def safe_get_file_extension(filename):
     except Exception:
         return ""
 
-def safe_categorize_attachment_risk(filename, content_type, size, detected_type=None, is_spoofed=False, spoof_description=None):
+def safe_categorize_attachment_risk(filename, content_type, size, detected_type=None, is_spoofed=False, spoof_description=None, content_analysis=None):
     """Categorize attachment risk with comprehensive error handling and content-based detection."""
     try:
         if not filename:
@@ -229,16 +236,27 @@ def safe_categorize_attachment_risk(filename, content_type, size, detected_type=
         risk_factors = []
         risk_level = "low"
         
-        # HIGHEST PRIORITY: Extension spoofing detection
+        # HIGHEST PRIORITY: Content analysis results
+        if content_analysis and content_analysis.get('risk_score', 0) >= 70:
+            risk_factors.append("PHISHING CONTENT: High-risk phrases detected")
+            risk_level = "high"
+        elif content_analysis and content_analysis.get('risk_score', 0) >= 40:
+            risk_factors.append("Suspicious content detected")
+            if risk_level == "low":
+                risk_level = "medium"
+        
+        # SECOND PRIORITY: Extension spoofing detection
         if is_spoofed and spoof_description:
             risk_factors.append(f"EXTENSION SPOOFING: {spoof_description}")
-            risk_level = "high"
+            if risk_level != "high":
+                risk_level = "high"
         
         # Check actual detected content type vs claimed extension
         if detected_type:
             if detected_type in ['exe', 'elf']:
                 risk_factors.append(f"Executable content detected ({detected_type.upper()})")
-                risk_level = "high"
+                if risk_level != "high":
+                    risk_level = "high"
             elif detected_type == 'pdf' and extension != 'pdf':
                 risk_factors.append(f"PDF content with .{extension} extension")
                 if risk_level != "high":
@@ -252,7 +270,8 @@ def safe_categorize_attachment_risk(filename, content_type, size, detected_type=
         try:
             if extension in SUSPICIOUS_EXTENSIONS:
                 risk_factors.append(f"Executable file type (.{extension})")
-                risk_level = "high"
+                if risk_level != "high":
+                    risk_level = "high"
             elif extension in MACRO_EXTENSIONS:
                 risk_factors.append(f"Macro-capable document (.{extension})")
                 if risk_level == "low":
@@ -272,7 +291,8 @@ def safe_categorize_attachment_risk(filename, content_type, size, detected_type=
                 for i, part in enumerate(filename_parts[:-1]):
                     if part in SUSPICIOUS_EXTENSIONS:
                         risk_factors.append("Double extension detected (possible evasion)")
-                        risk_level = "high"
+                        if risk_level != "high":
+                            risk_level = "high"
                         break
         except Exception:
             pass
@@ -287,7 +307,8 @@ def safe_categorize_attachment_risk(filename, content_type, size, detected_type=
             for name in suspicious_names:
                 if name in filename_lower and (extension in SUSPICIOUS_EXTENSIONS or is_spoofed):
                     risk_factors.append(f"Suspicious filename pattern with dangerous content")
-                    risk_level = "high"
+                    if risk_level != "high":
+                        risk_level = "high"
                     break
         except Exception:
             pass
@@ -673,7 +694,7 @@ def safe_determine_risk_from_qr(qr_analysis):
 
 def analyze_file_by_content(attachment_data, api_key):
     """
-    NEW: Analyze attachment based on actual content, not just filename.
+    Analyze attachment based on actual content, not just filename.
     Returns analysis results including QR codes, embedded content, etc.
     """
     try:
@@ -833,6 +854,7 @@ def analyze_attachments(msg_obj, api_key):
         results = []
         total_qr_count = 0
         spoofing_detected = False
+        phishing_content_detected = False  # NEW: Track phishing content
         
         # Process each attachment
         for i, attachment in enumerate(attachments, 1):
@@ -850,7 +872,7 @@ def analyze_attachments(msg_obj, api_key):
                     else:
                         print(f"Warning: Attachment {i} had processing errors: {escaped_error}")
                 
-                # NEW: Content-based analysis
+                # Content-based analysis (existing QR/spoofing detection)
                 content_analysis_results = analyze_file_by_content(attachment, api_key)
                 detected_type = content_analysis_results.get('detected_type')
                 is_spoofed = content_analysis_results.get('spoofing_detected', False)
@@ -858,15 +880,28 @@ def analyze_attachments(msg_obj, api_key):
                 qr_analysis = content_analysis_results.get('qr_analysis')
                 content_analysis = content_analysis_results.get('content_analysis')
                 
+                # NEW: Phishing content analysis
+                attachment_content_analysis = None
+                if CONTENT_ANALYSIS_AVAILABLE:
+                    try:
+                        attachment_content_analysis = attachment_content_analyzer.analyze_attachment_content(attachment, api_key)
+                        if attachment_content_analysis.get('findings'):
+                            phishing_content_detected = True
+                    except Exception as e:
+                        if COMPATIBLE_OUTPUT:
+                            print_status(f"Warning: Content analysis failed for {filename}: {e}", "warning")
+                        else:
+                            print(f"Warning: Content analysis failed for {filename}: {e}")
+                
                 if is_spoofed:
                     spoofing_detected = True
                 
                 # Calculate file hash
                 file_hash = safe_calculate_file_hash(content)
                 
-                # Enhanced risk categorization with content detection
+                # Enhanced risk categorization with content detection AND phishing analysis
                 base_risk_level, base_risk_reason = safe_categorize_attachment_risk(
-                    filename, content_type, size, detected_type, is_spoofed, spoof_description)
+                    filename, content_type, size, detected_type, is_spoofed, spoof_description, attachment_content_analysis)
                 
                 # Check with VirusTotal if we have content
                 vt_verdict = "unchecked"
@@ -919,6 +954,7 @@ def analyze_attachments(msg_obj, api_key):
                     'is_spoofed': is_spoofed,
                     'spoof_description': spoof_description,
                     'content_analysis': content_analysis,
+                    'attachment_content_analysis': attachment_content_analysis,  # NEW: Store phishing content analysis
                     'base_risk_level': base_risk_level,
                     'final_risk_level': final_risk_level,
                     'final_risk_reason': final_risk_reason,
@@ -943,6 +979,7 @@ def analyze_attachments(msg_obj, api_key):
                     'is_spoofed': False,
                     'spoof_description': None,
                     'content_analysis': None,
+                    'attachment_content_analysis': None,  # NEW
                     'base_risk_level': 'unknown',
                     'final_risk_level': 'unknown',
                     'final_risk_reason': f'Processing error: {e}',
@@ -967,20 +1004,22 @@ def analyze_attachments(msg_obj, api_key):
                 print(f"Warning: Could not sort results: {e}")
         
         # Display results with consistent color handling
+        # Display results with optimized formatting
         try:
             for result in results:
                 try:
-                    # Attachment header
+                    # Attachment header with optimized format
                     if COMPATIBLE_OUTPUT:
                         print_attachment_header(result.get('index', '?'))
                     else:
                         print(f"Attachment {result.get('index', '?')}:")
                     
-                    # Filename
+                    # Basic info with bullet points
+                    filename = result.get('filename', 'unknown')
                     if COMPATIBLE_OUTPUT:
-                        print_filename(result.get('filename', 'unknown'))
+                        output.print(f"- Filename: [yellow]{output.escape(filename)}[/yellow]")
                     else:
-                        print(f"  Filename: {result.get('filename', 'unknown')}")
+                        print(f"- Filename: {filename}")
                     
                     # Type (with detected type info)
                     content_type = str(result.get('content_type', 'unknown'))
@@ -993,29 +1032,63 @@ def analyze_attachments(msg_obj, api_key):
                     
                     escaped_type_info = output.escape(type_info) if COMPATIBLE_OUTPUT else type_info
                     if COMPATIBLE_OUTPUT:
-                        output.print(f"  Type: {escaped_type_info}")
+                        output.print(f"- Type: {escaped_type_info}")
                     else:
-                        print(f"  Type: {escaped_type_info}")
+                        print(f"- Type: {escaped_type_info}")
                     
                     # Size
                     if COMPATIBLE_OUTPUT:
-                        output.print(f"  Size: {safe_format_file_size(result.get('size', 0))}")
+                        output.print(f"- Size: {safe_format_file_size(result.get('size', 0))}")
                     else:
-                        print(f"  Size: {safe_format_file_size(result.get('size', 0))}")
+                        print(f"- Size: {safe_format_file_size(result.get('size', 0))}")
                     
                     # SHA256 (color-coded by VT verdict)
                     if result.get('hash') != "N/A":
+                        hash_value = result.get('hash', 'N/A')
+                        vt_verdict = result.get('vt_verdict', 'unchecked')
+                        
+                        # Apply defanging if enabled
+                        display_hash = hash_value
+                        try:
+                            if defanger.should_defang():
+                                display_hash = defanger.defang_text(display_hash)
+                        except Exception:
+                            pass
+                        
                         if COMPATIBLE_OUTPUT:
-                            print_hash(result.get('hash', 'N/A'), result.get('vt_verdict', 'unchecked'))
+                            hash_colors = {
+                                "malicious": "red", "suspicious": "yellow", "benign": "green",
+                                "unknown": "orange3", "unchecked": "orange3"
+                            }
+                            hash_color = hash_colors.get(vt_verdict, "orange3")
+                            output.print(f"- SHA256: [{hash_color}]{output.escape(display_hash)}[/{hash_color}]")
                         else:
-                            # Apply defanging to hash if enabled (though hashes aren't typically defanged)
-                            display_hash = result.get('hash', 'N/A')
-                            try:
-                                if defanger.should_defang():
-                                    display_hash = defanger.defang_text(display_hash)
-                            except Exception:
-                                pass
-                            print(f"  SHA256: {display_hash}")
+                            print(f"- SHA256: {display_hash}")
+                    
+                    # VirusTotal verdict
+                    vt_verdict = result.get('vt_verdict', 'unchecked')
+                    vt_comment = result.get('vt_comment', 'unknown')
+                    
+                    if COMPATIBLE_OUTPUT:
+                        vt_colors = {
+                            "malicious": "red", "suspicious": "yellow", "benign": "green",
+                            "unknown": "orange3", "unchecked": "orange3"
+                        }
+                        vt_color = vt_colors.get(str(vt_verdict).lower(), "orange3")
+                        output.print(f"- VirusTotal: [{vt_color}]{str(vt_verdict).upper()}[/{vt_color}] ({output.escape(str(vt_comment))})")
+                    else:
+                        print(f"- VirusTotal: {str(vt_verdict).upper()} ({vt_comment})")
+                    
+                    print()  # Blank line after basic info
+                    
+                    # Content analysis (optimized display)
+                    if result.get('attachment_content_analysis') and CONTENT_ANALYSIS_AVAILABLE:
+                        attachment_content_analyzer.display_attachment_content_analysis(
+                            result.get('index', 0),
+                            result.get('filename', 'unknown'),
+                            result['attachment_content_analysis']
+                        )
+                        print()  # Blank line after content analysis
                     
                     # Extension spoofing warning (HIGH PRIORITY)
                     if result.get('is_spoofed'):
@@ -1025,38 +1098,120 @@ def analyze_attachments(msg_obj, api_key):
                             output.print(f"  [red]SPOOFING ALERT: {escaped_spoof}[/red]")
                         else:
                             print(f"  SPOOFING ALERT: {escaped_spoof}")
+                        print()
                     
-                    # Content analysis results
+                    # Content analysis results (existing - for spoofing/type mismatch)
                     if result.get('content_analysis'):
                         escaped_analysis = output.escape(result.get('content_analysis')) if COMPATIBLE_OUTPUT else result.get('content_analysis')
                         if COMPATIBLE_OUTPUT:
                             output.print(f"  [yellow]Content Analysis: {escaped_analysis}[/yellow]")
                         else:
                             print(f"  Content Analysis: {escaped_analysis}")
-                    
-                    # Risk Level (color-coded consistently)
-                    if COMPATIBLE_OUTPUT:
-                        print_risk_level(result.get('final_risk_level', 'unknown'), result.get('final_risk_reason', 'unknown'))
-                    else:
-                        print(f"  Risk Level: {str(result.get('final_risk_level', 'unknown')).upper()} ({result.get('final_risk_reason', 'unknown')})")
-                    
-                    # VirusTotal verdict (color-coded consistently)
-                    if COMPATIBLE_OUTPUT:
-                        print_vt_verdict(result.get('vt_verdict', 'unchecked'), result.get('vt_comment', 'unknown'))
-                    else:
-                        print(f"  VirusTotal: {str(result.get('vt_verdict', 'unchecked')).upper()} ({result.get('vt_comment', 'unknown')})")
+                        print()
                     
                     # QR Code analysis (if applicable)
                     if result.get('qr_analysis'):
                         try:
                             qr_analyzer.display_qr_analysis(result.get('index', 0), result['qr_analysis'])
+                            print()
                         except Exception as e:
                             if COMPATIBLE_OUTPUT:
-                                output.print(f"  [yellow]QR Analysis: Error displaying results - {e}[/yellow]")
+                                output.print(f"- [yellow]QR Analysis: Error displaying results - {e}[/yellow]")
                             else:
-                                print(f"  QR Analysis: Error displaying results - {e}")
+                                print(f"- QR Analysis: Error displaying results - {e}")
+                            print()
                     
-                    print()
+                    # CONSOLIDATED RISK ASSESSMENT
+                    risk_factors = []
+                    final_risk_level = result.get('final_risk_level', 'unknown')
+                    
+                    # Get QR code risks
+                    if result.get('qr_analysis') and result.get('qr_analysis', {}).get('qr_found'):
+                        qr_results = result.get('qr_analysis', {}).get('qr_results', [])
+                        malicious_qr = any(qr.get('verdict') == 'malicious' for qr in qr_results if isinstance(qr, dict))
+                        suspicious_qr = any(qr.get('verdict') == 'suspicious' for qr in qr_results if isinstance(qr, dict))
+                        
+                        qr_count = len(qr_results)
+                        if malicious_qr:
+                            risk_factors.append(f"MALICIOUS QR code{'s' if qr_count != 1 else ''}")
+                        elif suspicious_qr:
+                            risk_factors.append(f"Suspicious QR code{'s' if qr_count != 1 else ''}")
+                        else:
+                            risk_factors.append(f"QR code{'s' if qr_count != 1 else ''} detected")
+                    
+                    # Get content analysis risks
+                    if result.get('attachment_content_analysis') and CONTENT_ANALYSIS_AVAILABLE:
+                        try:
+                            content_risk_factors, content_risk_score = attachment_content_analyzer.get_attachment_content_risk_factors(
+                                result['attachment_content_analysis']
+                            )
+                            risk_factors.extend(content_risk_factors)
+                        except Exception:
+                            pass
+                    
+                    # Get spoofing risks
+                    if result.get('is_spoofed'):
+                        spoof_desc = result.get('spoof_description', 'Extension spoofing')
+                        risk_factors.append(f"EXTENSION SPOOFING: {spoof_desc}")
+                    
+                    # Get other risks from final_risk_reason
+                    final_risk_reason = result.get('final_risk_reason', '')
+                    if final_risk_reason and not any(factor in final_risk_reason for factor in ['QR code', 'PHISHING CONTENT', 'EXTENSION SPOOFING']):
+                        risk_factors.append(final_risk_reason)
+                    
+                    # Display consolidated risk assessment
+                    if COMPATIBLE_OUTPUT:
+                        output.print("Risk Level:")
+                    else:
+                        print("Risk Level:")
+                    
+                    if final_risk_level == "high":
+                        risk_color = "red"
+                    elif final_risk_level == "medium":
+                        risk_color = "orange3"
+                    elif final_risk_level == "low":
+                        risk_color = "green"
+                    else:
+                        risk_color = "orange3"
+                    
+                    if COMPATIBLE_OUTPUT:
+                        output.print(f"- [{risk_color}]{final_risk_level.upper()}[/{risk_color}]")
+                    else:
+                        print(f"- {final_risk_level.upper()}")
+                    
+                    # Show specific risk factors
+                    for factor in risk_factors:
+                        if COMPATIBLE_OUTPUT:
+                            if factor.startswith('MALICIOUS') or factor.startswith('EXTENSION SPOOFING'):
+                                output.print(f"- [red]{output.escape(factor)}[/red]")
+                            elif factor.startswith('PHISHING CONTENT'):
+                                output.print(f"- [red]{output.escape(factor)}[/red]")
+                            elif 'suspicious' in factor.lower():
+                                output.print(f"- [orange3]{output.escape(factor)}[/orange3]")
+                            else:
+                                output.print(f"- {output.escape(factor)}")
+                        else:
+                            print(f"- {factor}")
+                    
+                    # Add content risk score if available
+                    if result.get('attachment_content_analysis') and CONTENT_ANALYSIS_AVAILABLE:
+                        content_analysis = result['attachment_content_analysis']
+                        if content_analysis.get('findings') or content_analysis.get('url_analysis', {}).get('results'):
+                            content_risk_score = content_analysis.get('risk_score', 0)
+                            if content_risk_score > 0:
+                                if content_risk_score >= 70:
+                                    score_color = "red"
+                                elif content_risk_score >= 40:
+                                    score_color = "orange3"
+                                else:
+                                    score_color = "yellow"
+                                
+                                if COMPATIBLE_OUTPUT:
+                                    output.print(f"- Content risk score: [{score_color}]{content_risk_score}/100[/{score_color}]")
+                                else:
+                                    print(f"- Content risk score: {content_risk_score}/100")
+                    
+                    print()  # Final blank line
                     
                 except Exception as e:
                     if COMPATIBLE_OUTPUT:
@@ -1071,7 +1226,7 @@ def analyze_attachments(msg_obj, api_key):
             else:
                 print(f"Error displaying attachment results: {e}")
         
-        # Enhanced summary assessment
+        # Enhanced summary assessment with comprehensive findings
         try:
             final_high_risk_count = sum(1 for r in results if r.get('final_risk_level') == 'high')
             malicious_count = sum(1 for r in results if r.get('vt_verdict') == 'malicious')
@@ -1079,22 +1234,59 @@ def analyze_attachments(msg_obj, api_key):
             spoofed_count = sum(1 for r in results if r.get('is_spoofed'))
             qr_codes_found = total_qr_count > 0
             
+            # NEW: Check for phishing content in attachments
+            phishing_files_count = sum(1 for r in results if r.get('attachment_content_analysis', {}).get('findings'))
+            malicious_url_files = sum(1 for r in results if r.get('attachment_content_analysis', {}).get('url_analysis', {}).get('malicious_count', 0) > 0)
+            suspicious_url_files = sum(1 for r in results if r.get('attachment_content_analysis', {}).get('url_analysis', {}).get('suspicious_count', 0) > 0)
+            
+            # Determine overall threat level
+            threat_factors = []
+            
             if malicious_count > 0:
-                summary_text = "CRITICAL: Malicious attachments detected!"
+                threat_factors.append(f"{malicious_count} malicious file{'s' if malicious_count != 1 else ''} (VirusTotal)")
                 summary_color = "red"
-            elif spoofed_count > 0:
-                summary_text = "CRITICAL: Extension spoofing detected - files disguised with fake extensions!"
+            
+            if malicious_url_files > 0:
+                threat_factors.append(f"{malicious_url_files} file{'s' if malicious_url_files != 1 else ''} with malicious URLs")
                 summary_color = "red"
-            elif qr_codes_found:
-                # Use proper singular/plural for QR codes
+            
+            if spoofed_count > 0:
+                threat_factors.append(f"{spoofed_count} spoofed file{'s' if spoofed_count != 1 else ''}")
+                if 'summary_color' not in locals():
+                    summary_color = "red"
+            
+            if phishing_files_count > 0:
+                threat_factors.append(f"{phishing_files_count} file{'s' if phishing_files_count != 1 else ''} with phishing content")
+                if 'summary_color' not in locals():
+                    summary_color = "red"
+            
+            if qr_codes_found:
                 if total_qr_count == 1:
-                    summary_text = "WARNING: QR code detected - highly suspicious!"
+                    threat_factors.append("QR code detected")
                 else:
-                    summary_text = "WARNING: QR codes detected - highly suspicious!"
-                summary_color = "red"
-            elif final_high_risk_count > 0 or suspicious_count > 0:
-                summary_text = "WARNING: Suspicious attachments detected!"
+                    threat_factors.append(f"{total_qr_count} QR codes detected")
+                if 'summary_color' not in locals():
+                    summary_color = "red"
+            
+            if suspicious_count > 0 or suspicious_url_files > 0:
+                if suspicious_count > 0:
+                    threat_factors.append(f"{suspicious_count} suspicious file{'s' if suspicious_count != 1 else ''} (VirusTotal)")
+                if suspicious_url_files > 0:
+                    threat_factors.append(f"{suspicious_url_files} file{'s' if suspicious_url_files != 1 else ''} with suspicious URLs")
+                if 'summary_color' not in locals():
+                    summary_color = "orange3"
+            
+            if final_high_risk_count > 0 and 'summary_color' not in locals():
                 summary_color = "orange3"
+            
+            # Generate summary text
+            if threat_factors:
+                if len(threat_factors) == 1:
+                    summary_text = f"CRITICAL: {threat_factors[0]}!"
+                elif len(threat_factors) == 2:
+                    summary_text = f"CRITICAL: {threat_factors[0]} and {threat_factors[1]}!"
+                else:
+                    summary_text = f"CRITICAL: {threat_factors[0]}, {threat_factors[1]}, and {len(threat_factors) - 2} more threat{'s' if len(threat_factors) - 2 != 1 else ''}!"
             else:
                 summary_text = "Attachments appear benign, but verify manually."
                 summary_color = "green"
@@ -1103,13 +1295,6 @@ def analyze_attachments(msg_obj, api_key):
                 output.print(f"[blue bold]ATTACHMENT ASSESSMENT:[/blue bold] [{summary_color}]{summary_text}[/{summary_color}]")
             else:
                 print(f"ATTACHMENT ASSESSMENT: {summary_text}")
-            
-            # Additional warning for spoofing
-            if spoofed_count > 0:
-                if COMPATIBLE_OUTPUT:
-                    output.print(f"[red bold]WARNING: {spoofed_count} file{'s' if spoofed_count != 1 else ''} have content that doesn't match their extension![/red bold]")
-                else:
-                    print(f"WARNING: {spoofed_count} file{'s' if spoofed_count != 1 else ''} have content that doesn't match their extension!")
             
             print()
             

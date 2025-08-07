@@ -569,14 +569,20 @@ def safe_categorize_attachment_risk(filename, content_type, size, detected_type=
 # (I'll include the key ones but assume you have the rest from your original code)
 
 def safe_extract_attachments(msg_obj):
-    """Extract attachment information with comprehensive error handling."""
+    """ENHANCED: Extract attachment information with MSG-specific handling."""
     attachments = []
     
     try:
         if not msg_obj:
             return attachments
         
+        # Check if this is a non-multipart message (could be conversion issue)
         if not hasattr(msg_obj, 'is_multipart') or not msg_obj.is_multipart():
+            # Try to detect if this should have been multipart
+            subject = msg_obj.get('Subject', '')
+            if 'voice message' in subject.lower() or 'attachment' in subject.lower():
+                print("Warning: Non-multipart message but subject suggests attachments")
+                print("This might indicate MSG conversion issues")
             return attachments
         
         if not hasattr(msg_obj, 'walk'):
@@ -587,12 +593,28 @@ def safe_extract_attachments(msg_obj):
                 if not hasattr(part, 'get_content_disposition'):
                     continue
                 
-                if part.get_content_disposition() == 'attachment':
+                disposition = part.get_content_disposition()
+                
+                # FIXED: Also check for inline attachments that might be treated as attachments
+                if disposition in ['attachment', 'inline']:
                     try:
                         filename = part.get_filename() if hasattr(part, 'get_filename') else None
                         content_type = part.get_content_type() if hasattr(part, 'get_content_type') else 'application/octet-stream'
                         
-                        # Get file content safely
+                        # FIXED: Better filename handling
+                        if not filename or filename.strip() == '':
+                            # Try to extract from Content-Type or Content-Disposition
+                            try:
+                                cd_header = part.get('Content-Disposition', '')
+                                filename_match = re.search(r'filename[*]?=(?:"([^"]+)"|([^;\s]+))', cd_header)
+                                if filename_match:
+                                    filename = filename_match.group(1) or filename_match.group(2)
+                                else:
+                                    filename = f"unnamed_attachment_{len(attachments)+1}"
+                            except:
+                                filename = f"unnamed_attachment_{len(attachments)+1}"
+                        
+                        # Get file content safely with better error handling
                         content = b""
                         size = 0
                         
@@ -600,60 +622,49 @@ def safe_extract_attachments(msg_obj):
                             if hasattr(part, 'get_payload'):
                                 content = part.get_payload(decode=True)
                                 if content is None:
-                                    content = part.get_payload()
-                                    if isinstance(content, str):
-                                        content = content.encode('utf-8', errors='replace')
-                                
-                                if content and len(content) > MAX_ATTACHMENT_SIZE:
-                                    escaped_filename = output.escape(filename or 'unnamed') if COMPATIBLE_OUTPUT else (filename or 'unnamed')
-                                    if COMPATIBLE_OUTPUT:
-                                        print_status(f"Warning: Attachment {escaped_filename} is very large ({len(content) // (1024*1024)}MB), truncating for analysis", "warning")
+                                    # Try without decoding
+                                    raw_content = part.get_payload()
+                                    if isinstance(raw_content, str):
+                                        # This might be base64 encoded
+                                        try:
+                                            import base64
+                                            content = base64.b64decode(raw_content)
+                                        except:
+                                            content = raw_content.encode('utf-8', errors='replace')
                                     else:
-                                        print(f"Warning: Attachment {escaped_filename} is very large ({len(content) // (1024*1024)}MB), truncating for analysis")
+                                        content = b""
+                                
+                                # Check for oversized attachments
+                                if content and len(content) > MAX_ATTACHMENT_SIZE:
+                                    print(f"Warning: Attachment {filename} is very large ({len(content) // (1024*1024)}MB), truncating for analysis")
                                     content = content[:MAX_ATTACHMENT_SIZE]
+                                    
                         except Exception as e:
-                            escaped_filename = output.escape(filename or 'unnamed attachment') if COMPATIBLE_OUTPUT else (filename or 'unnamed attachment')
-                            if COMPATIBLE_OUTPUT:
-                                print_status(f"Warning: Could not extract content for {escaped_filename}: {e}", "warning")
-                            else:
-                                print(f"Warning: Could not extract content for {escaped_filename}: {e}")
+                            print(f"Warning: Could not extract content for {filename}: {e}")
                             content = b""
                         
                         size = len(content) if content else 0
                         
-                        attachments.append({
-                            'filename': filename or 'unnamed_attachment',
-                            'content_type': content_type,
-                            'size': size,
-                            'content': content
-                        })
+                        # FIXED: Only add valid attachments
+                        if filename and (size > 0 or disposition == 'attachment'):
+                            attachments.append({
+                                'filename': filename,
+                                'content_type': content_type,
+                                'size': size,
+                                'content': content
+                            })
                         
                     except Exception as e:
-                        if COMPATIBLE_OUTPUT:
-                            print_status(f"Warning: Error processing attachment: {e}", "warning")
-                        else:
-                            print(f"Warning: Error processing attachment: {e}")
-                        # Add a placeholder for the failed attachment
-                        attachments.append({
-                            'filename': 'error_processing_attachment',
-                            'content_type': 'application/octet-stream',
-                            'size': 0,
-                            'content': b"",
-                            'error': str(e)
-                        })
+                        print(f"Warning: Error processing attachment: {e}")
+                        # Don't add error attachments that confuse the analysis
+                        continue
                         
             except Exception as e:
-                if COMPATIBLE_OUTPUT:
-                    print_status(f"Warning: Error processing email part: {e}", "warning")
-                else:
-                    print(f"Warning: Error processing email part: {e}")
+                print(f"Warning: Error processing email part: {e}")
                 continue
     
     except Exception as e:
-        if COMPATIBLE_OUTPUT:
-            print_status(f"Error extracting attachments: {e}", "error")
-        else:
-            print(f"Error extracting attachments: {e}")
+        print(f"Error extracting attachments: {e}")
     
     return attachments
 

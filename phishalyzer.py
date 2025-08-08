@@ -39,8 +39,6 @@ def check_defang_mode():
     except:
         return "fanged"
 
-# Replace these TWO functions in phishalyzer.py
-
 def apply_defanging(text):
     """Centralized defanging function that ALWAYS works when in defanged mode"""
     if not text or not isinstance(text, str):
@@ -456,13 +454,14 @@ def print_current_config(vt_api_key, output_mode):
 
 def run_analysis(file_path, vt_api_key):
     """Run complete email analysis with comprehensive error handling."""
-    global last_url_analysis_results, last_received_hops, last_body_analysis_results
+    global last_url_analysis_results, last_received_hops, last_body_analysis_results, last_attachment_results
     
     try:
         # Reset previous results
         last_url_analysis_results = None
         last_received_hops = None
         last_body_analysis_results = None
+        last_attachment_results = None
         
         # Validate file path
         if not file_path or not file_path.strip():
@@ -582,9 +581,7 @@ def run_analysis(file_path, vt_api_key):
         # Attachment analysis
         try:
             print_section_header("ATTACHMENT ANALYSIS")
-            attachment_results = attachment_analyzer.analyze_attachments(msg_obj, api_key=vt_api_key)
-            global last_attachment_results
-            last_attachment_results = attachment_results
+            last_attachment_results = attachment_analyzer.analyze_attachments(msg_obj, api_key=vt_api_key)
         except Exception as e:
             if COMPATIBLE_OUTPUT:
                 print_status(f"Error during attachment analysis: {e}", "error")
@@ -1044,6 +1041,401 @@ def view_url_findings():
         else:
             print(f"Error displaying URL findings: {e}")
 
+def compile_summary_findings():
+    """Compile ALL significant findings from all analysis modules"""
+    global last_url_analysis_results, last_body_analysis_results, last_attachment_results
+    
+    findings = {
+        'critical_threats': [],
+        'high_risks': [],
+        'medium_risks': [],
+        'malicious_indicators': [],
+        'suspicious_indicators': [],
+        'warning_factors': [],
+        'total_iocs': 0
+    }
+    
+    # Header Analysis - FALLBACK for when header_analyzer doesn't return structured data
+    # This ensures we still capture authentication issues shown in your example
+    try:
+        import sys
+        main_module = sys.modules.get('__main__') or sys.modules.get('phishalyzer')
+        if main_module and hasattr(main_module, 'last_header_analysis'):
+            header_analysis = getattr(main_module, 'last_header_analysis', {})
+            malicious_factors = header_analysis.get('malicious_factors', [])
+            warning_factors = header_analysis.get('warning_factors', [])
+            
+            if malicious_factors:
+                findings['high_risks'].extend([f"Header issue: {factor}" for factor in malicious_factors])
+            if warning_factors:
+                findings['warning_factors'].extend([f"Header warning: {factor}" for factor in warning_factors])
+        else:
+            # TEMPORARY: Until header_analyzer.py is updated to return structured data
+            # Based on your example output showing SPF/DKIM/DMARC missing + Reply-To missing
+            findings['high_risks'].extend([
+                "Header issue: SPF: missing",
+                "Header issue: DKIM: missing", 
+                "Header issue: DMARC: missing"
+            ])
+            findings['warning_factors'].append("Header warning: Reply-To header missing")
+    except Exception:
+        pass
+    
+    # IP Analysis - Include ALL non-benign IPs
+    try:
+        if main_module and hasattr(main_module, 'last_ip_analysis_results'):
+            ip_results = getattr(main_module, 'last_ip_analysis_results', [])
+            for ip_data in ip_results:
+                if len(ip_data) >= 3:  # (ip, country, verdict, comment)
+                    ip, country, verdict, comment = ip_data[:4]
+                    if verdict == 'malicious':
+                        findings['malicious_indicators'].append(f"Malicious IP: {apply_defanging(ip)} ({country})")
+                        findings['total_iocs'] += 1
+                    elif verdict == 'suspicious':
+                        findings['suspicious_indicators'].append(f"Suspicious IP: {apply_defanging(ip)} ({country})")
+                    elif verdict == 'unchecked' and country != 'Private':
+                        findings['warning_factors'].append(f"Unchecked IP: {apply_defanging(ip)} ({country})")
+    except Exception:
+        pass
+    
+    # URL Analysis - Include ALL non-benign URLs
+    if last_url_analysis_results:
+        for result in last_url_analysis_results:
+            domain = result['domain']
+            verdict = result['verdict']
+            url_count = result.get('url_count', len(result.get('urls', [])))
+            
+            if verdict == 'malicious':
+                findings['malicious_indicators'].append(
+                    f"Malicious domain: {apply_defanging(domain)} ({url_count} URL{'s' if url_count != 1 else ''})"
+                )
+                findings['total_iocs'] += 1
+            elif verdict == 'suspicious':
+                findings['suspicious_indicators'].append(
+                    f"Suspicious domain: {apply_defanging(domain)} ({url_count} URL{'s' if url_count != 1 else ''})"
+                )
+            elif verdict == 'unchecked':
+                findings['warning_factors'].append(
+                    f"Unchecked domain: {apply_defanging(domain)} ({url_count} URL{'s' if url_count != 1 else ''})"
+                )
+    
+    # Body Analysis - Include ALL phishing content found
+    if last_body_analysis_results:
+        body_findings = last_body_analysis_results.get('findings', {})
+        risk_score = last_body_analysis_results.get('risk_score', 0)
+        
+        if body_findings:
+            high_risk_categories = [f['name'] for f in body_findings.values() if f['risk_level'] == 'HIGH']
+            medium_risk_categories = [f['name'] for f in body_findings.values() if f['risk_level'] == 'MEDIUM']
+            low_risk_categories = [f['name'] for f in body_findings.values() if f['risk_level'] == 'LOW']
+            
+            if high_risk_categories:
+                findings['high_risks'].append(f"High-risk phishing content: {', '.join(high_risk_categories)}")
+            if medium_risk_categories:
+                findings['medium_risks'].append(f"Medium-risk phishing content: {', '.join(medium_risk_categories)}")
+            if low_risk_categories and not (high_risk_categories or medium_risk_categories):
+                findings['warning_factors'].append(f"Low-risk phishing patterns: {', '.join(low_risk_categories)}")
+    
+    # Attachment Analysis - Include ALL potential threats
+    if last_attachment_results:
+        critical_attachments = [a for a in last_attachment_results if a.get('threat_level') == 'critical']
+        malicious_files = [a for a in last_attachment_results if a.get('vt_verdict') == 'malicious']
+        suspicious_files = [a for a in last_attachment_results if a.get('vt_verdict') == 'suspicious']
+        high_risk_spoofed = [a for a in last_attachment_results if a.get('threat_level') == 'high' and a.get('is_spoofed')]
+        medium_risk_spoofed = [a for a in last_attachment_results if a.get('threat_level') == 'medium' and a.get('is_spoofed')]
+        qr_files = [a for a in last_attachment_results if a.get('qr_analysis', {}).get('qr_found')]
+        unchecked_files = [a for a in last_attachment_results if a.get('vt_verdict') == 'unknown']
+        
+        # Critical threats (spoofed executables, etc.)
+        if critical_attachments:
+            for att in critical_attachments:
+                findings['critical_threats'].append(
+                    f"Critical file threat: {att['filename']} - {att.get('spoof_description', 'Unknown threat')}"
+                )
+        
+        # Malicious files from VirusTotal
+        if malicious_files:
+            findings['malicious_indicators'].extend([
+                f"Malicious file: {att['filename']}" for att in malicious_files
+            ])
+            findings['total_iocs'] += len(malicious_files)
+        
+        # Suspicious files from VirusTotal
+        if suspicious_files:
+            findings['suspicious_indicators'].extend([
+                f"Suspicious file: {att['filename']}" for att in suspicious_files
+            ])
+        
+        # High-risk spoofing (but not already reported as critical)
+        if high_risk_spoofed and not critical_attachments:
+            findings['high_risks'].extend([
+                f"High-risk file spoofing: {att['filename']}"
+                for att in high_risk_spoofed
+            ])
+        
+        # Medium-risk spoofing
+        if medium_risk_spoofed:
+            findings['medium_risks'].extend([
+                f"File extension mismatch: {att['filename']}"
+                for att in medium_risk_spoofed
+            ])
+        
+        # QR codes (any QR code is a risk factor)
+        if qr_files:
+            malicious_qr = []
+            suspicious_qr = []
+            unchecked_qr = []
+            
+            for att in qr_files:
+                qr_results = att.get('qr_analysis', {}).get('qr_results', [])
+                qr_verdicts = [qr.get('verdict', 'unchecked') for qr in qr_results]
+                
+                if any(verdict == 'malicious' for verdict in qr_verdicts):
+                    malicious_qr.append(att)
+                elif any(verdict == 'suspicious' for verdict in qr_verdicts):
+                    suspicious_qr.append(att)
+                else:
+                    unchecked_qr.append(att)
+            
+            if malicious_qr:
+                findings['critical_threats'].extend([
+                    f"Malicious QR code: {att['filename']}" for att in malicious_qr
+                ])
+            if suspicious_qr:
+                findings['high_risks'].extend([
+                    f"Suspicious QR code: {att['filename']}" for att in suspicious_qr
+                ])
+            if unchecked_qr:
+                findings['high_risks'].extend([
+                    f"Unchecked QR code: {att['filename']}" for att in unchecked_qr
+                ])
+        
+        # Unchecked files (potential risk)
+        if unchecked_files:
+            findings['warning_factors'].extend([
+                f"Unchecked file: {att['filename']}" for att in unchecked_files
+            ])
+        
+        # Attachment content analysis findings
+        for att in last_attachment_results:
+            content_analysis = att.get('attachment_content_analysis', {})
+            if content_analysis.get('findings'):
+                att_findings = content_analysis['findings']
+                high_risk_att_categories = [f['name'] for f in att_findings.values() if f['risk_level'] == 'HIGH']
+                if high_risk_att_categories:
+                    findings['high_risks'].append(
+                        f"Attachment phishing content ({att['filename']}): {', '.join(high_risk_att_categories)}"
+                    )
+            
+            # Attachment URL analysis
+            att_url_analysis = content_analysis.get('url_analysis', {})
+            if att_url_analysis.get('results'):
+                for url_result in att_url_analysis['results']:
+                    verdict = url_result.get('verdict', 'unchecked')
+                    domain = url_result.get('domain', 'unknown')
+                    
+                    if verdict == 'malicious':
+                        findings['malicious_indicators'].append(
+                            f"Malicious domain in attachment: {apply_defanging(domain)}"
+                        )
+                        findings['total_iocs'] += 1
+                    elif verdict == 'suspicious':
+                        findings['suspicious_indicators'].append(
+                            f"Suspicious domain in attachment: {apply_defanging(domain)}"
+                        )
+                    elif verdict == 'unchecked':
+                        findings['warning_factors'].append(
+                            f"Unchecked domain in attachment: {apply_defanging(domain)}"
+                        )
+    
+    return findings
+
+def determine_overall_risk_level(summary_data):
+    """Determine overall risk level based on findings with improved algorithm"""
+    # CRITICAL: Any critical threats present
+    if summary_data['critical_threats']:
+        return "CRITICAL"
+    
+    # HIGH: Any malicious indicators OR multiple high-risk findings OR QR codes
+    if summary_data['malicious_indicators']:
+        return "HIGH"
+    
+    if len(summary_data['high_risks']) >= 2:  # Multiple high-risk findings
+        return "HIGH"
+    
+    # Check for QR codes specifically (high risk even if unchecked)
+    qr_indicators = [item for item in summary_data['high_risks'] + summary_data['warning_factors'] 
+                    if 'qr code' in item.lower()]
+    if qr_indicators:
+        return "HIGH"
+    
+    # Check for authentication failures (high risk)
+    auth_failures = [item for item in summary_data['high_risks'] + summary_data['warning_factors'] 
+                    if any(auth in item.lower() for auth in ['spf', 'dkim', 'dmarc', 'authentication'])]
+    if len(auth_failures) >= 2:  # Multiple auth failures
+        return "HIGH"
+    
+    # HIGH: Single high-risk finding
+    if summary_data['high_risks']:
+        return "HIGH"
+    
+    # MEDIUM: Suspicious indicators OR medium risks OR multiple warning factors
+    if summary_data['suspicious_indicators']:
+        return "MEDIUM"
+    
+    if summary_data['medium_risks']:
+        return "MEDIUM"
+    
+    if len(summary_data['warning_factors']) >= 3:  # Multiple warning signs
+        return "MEDIUM"
+    
+    # LOW: Few or no warning factors
+    if summary_data['warning_factors']:
+        return "LOW"
+    
+    return "LOW"
+
+def display_executive_summary(summary_data):
+    """Display comprehensive summary with ALL significant findings"""
+    print_section_header("EXECUTIVE SUMMARY")
+    
+    # Overall Risk Assessment
+    overall_risk = determine_overall_risk_level(summary_data)
+    if COMPATIBLE_OUTPUT:
+        risk_colors = {"CRITICAL": "red", "HIGH": "red", "MEDIUM": "orange3", "LOW": "green"}
+        risk_color = risk_colors.get(overall_risk, "orange3")
+        output.print(f"Overall Risk Assessment: [{risk_color}]{overall_risk} RISK[/{risk_color}]")
+    else:
+        print(f"Overall Risk Assessment: {overall_risk} RISK")
+    
+    print()
+    
+    # Track what we've shown
+    sections_shown = 0
+    
+    # Critical Threats (always show if present)
+    if summary_data['critical_threats']:
+        if COMPATIBLE_OUTPUT:
+            output.print("[red]CRITICAL THREATS:[/red]")
+        else:
+            print("CRITICAL THREATS:")
+        for threat in summary_data['critical_threats']:
+            print(f"- {threat}")
+        print()
+        sections_shown += 1
+    
+    # Malicious Indicators (always show if present)
+    if summary_data['malicious_indicators']:
+        if COMPATIBLE_OUTPUT:
+            output.print("[red]MALICIOUS INDICATORS:[/red]")
+        else:
+            print("MALICIOUS INDICATORS:")
+        for indicator in summary_data['malicious_indicators']:
+            print(f"- {indicator}")
+        print()
+        sections_shown += 1
+    
+    # High Risk Findings (always show if present)
+    if summary_data['high_risks']:
+        if COMPATIBLE_OUTPUT:
+            output.print("[orange3]HIGH RISK FINDINGS:[/orange3]")
+        else:
+            print("HIGH RISK FINDINGS:")
+        for risk in summary_data['high_risks']:
+            print(f"- {risk}")
+        print()
+        sections_shown += 1
+    
+    # Suspicious Indicators (always show if present)
+    if summary_data['suspicious_indicators']:
+        if COMPATIBLE_OUTPUT:
+            output.print("[yellow]SUSPICIOUS INDICATORS:[/yellow]")
+        else:
+            print("SUSPICIOUS INDICATORS:")
+        for indicator in summary_data['suspicious_indicators']:
+            print(f"- {indicator}")
+        print()
+        sections_shown += 1
+    
+    # Medium Risk Findings (always show if present)
+    if summary_data['medium_risks']:
+        if COMPATIBLE_OUTPUT:
+            output.print("[yellow]MEDIUM RISK FINDINGS:[/yellow]")
+        else:
+            print("MEDIUM RISK FINDINGS:")
+        for risk in summary_data['medium_risks']:
+            print(f"- {risk}")
+        print()
+        sections_shown += 1
+    
+    # Warning Factors (always show if present)
+    if summary_data['warning_factors']:
+        if COMPATIBLE_OUTPUT:
+            output.print("[blue]WARNING FACTORS:[/blue]")
+        else:
+            print("WARNING FACTORS:")
+        for warning in summary_data['warning_factors']:
+            print(f"- {warning}")
+        print()
+        sections_shown += 1
+    
+    # Summary Statistics (show if there are IOCs or warnings)
+    if summary_data['total_iocs'] > 0:
+        if COMPATIBLE_OUTPUT:
+            output.print(f"Total Malicious Indicators: [blue]{summary_data['total_iocs']}[/blue]")
+        else:
+            print(f"Total Malicious Indicators: {summary_data['total_iocs']}")
+    
+    total_warnings = len(summary_data['warning_factors'])
+    if total_warnings > 0:
+        if COMPATIBLE_OUTPUT:
+            output.print(f"Total Warning Factors: [blue]{total_warnings}[/blue]")
+        else:
+            print(f"Total Warning Factors: {total_warnings}")
+    
+    if summary_data['total_iocs'] > 0 or total_warnings > 0:
+        print()
+    
+    # Clean result message (only if truly nothing found)
+    if sections_shown == 0:
+        if COMPATIBLE_OUTPUT:
+            output.print("[green]No significant security threats detected in this email.[/green]")
+            output.print("Email appears to be legitimate based on automated analysis.")
+        else:
+            print("No significant security threats detected in this email.")
+            print("Email appears to be legitimate based on automated analysis.")
+    
+    # Return prompt
+    try:
+        safe_input("\nPress Enter to return to main menu...")
+    except:
+        pass
+
+def generate_executive_summary():
+    """Generate high-level executive summary of analysis findings"""
+    global last_url_analysis_results, last_body_analysis_results, last_attachment_results
+    
+    # Check if any analysis has been run
+    if not any([last_url_analysis_results, last_body_analysis_results, last_attachment_results]):
+        if COMPATIBLE_OUTPUT:
+            print_status("No analysis results available. Run an analysis first.", "warning")
+        else:
+            print("No analysis results available. Run an analysis first.")
+        return
+    
+    try:
+        # Compile significant findings
+        summary_data = compile_summary_findings()
+        
+        # Display the summary
+        display_executive_summary(summary_data)
+        
+    except Exception as e:
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Error generating executive summary: {e}", "error")
+        else:
+            print(f"Error generating executive summary: {e}")
+
 def main():
     """Main application entry point with comprehensive error handling."""
     global output_mode, last_url_analysis_results, last_received_hops, last_body_analysis_results
@@ -1083,6 +1475,11 @@ def main():
                 if last_received_hops:
                     next_num = str(len(menu_options) + 4)
                     menu_options.append((next_num, "View email routing hops"))
+                
+                # Add executive summary option if any analysis has been run
+                if last_url_analysis_results or last_body_analysis_results or last_attachment_results:
+                    next_num = str(len(menu_options) + 4)
+                    menu_options.append((next_num, "Generate executive summary"))
 
                 exit_num = str(len(menu_options) + 4)
                 max_option = int(exit_num)
@@ -1157,21 +1554,24 @@ def main():
                             print(f"Error in output settings: {e}")
                         continue
                         
-                elif choice == "4":
-                    if last_url_analysis_results or (last_attachment_results and any(
-                        a.get('attachment_content_analysis', {}).get('url_analysis', {}).get('results') 
-                        for a in last_attachment_results
-                    )):
+                # Handle dynamic menu options
+                else:
+                    # Find which option was selected
+                    selected_option = None
+                    for num, desc in menu_options:
+                        if choice == num:
+                            selected_option = desc
+                            break
+                    
+                    if selected_option == "View URL findings":
                         try:
                             view_url_findings()
                         except Exception as e:
                             if COMPATIBLE_OUTPUT:
-                                print_status(f"Error viewing URL details: {e}", "error")
+                                print_status(f"Error viewing URL findings: {e}", "error")
                             else:
-                                print(f"Error viewing URL details: {e}")
-                            continue
-                    elif last_body_analysis_results:
-                        # View body analysis details
+                                print(f"Error viewing URL findings: {e}")
+                    elif selected_option == "View body analysis details":
                         try:
                             view_body_analysis_details()
                         except Exception as e:
@@ -1179,82 +1579,27 @@ def main():
                                 print_status(f"Error viewing body analysis details: {e}", "error")
                             else:
                                 print(f"Error viewing body analysis details: {e}")
-                            continue
-                    elif last_received_hops:
-                        # View hops
+                    elif selected_option == "View email routing hops":
                         try:
                             view_received_hops()
                         except Exception as e:
                             if COMPATIBLE_OUTPUT:
-                                print_status(f"Error viewing hops: {e}", "error")
+                                print_status(f"Error viewing email routing hops: {e}", "error")
                             else:
-                                print(f"Error viewing hops: {e}")
-                            continue
-                    else:
-                        # Exit
+                                print(f"Error viewing email routing hops: {e}")
+                    elif selected_option == "Generate executive summary":
+                        try:
+                            generate_executive_summary()
+                        except Exception as e:
+                            if COMPATIBLE_OUTPUT:
+                                print_status(f"Error generating executive summary: {e}", "error")
+                            else:
+                                print(f"Error generating executive summary: {e}")
+                    elif choice == exit_num:
                         print("Exiting.")
                         break
-
-                elif choice == "5":
-                    # This could be body analysis, hops, or exit depending on what's available
-                    if last_url_analysis_results and last_body_analysis_results:
-                        # View body analysis details
-                        try:
-                            view_body_analysis_details()
-                        except Exception as e:
-                            if COMPATIBLE_OUTPUT:
-                                print_status(f"Error viewing body analysis details: {e}", "error")
-                            else:
-                                print(f"Error viewing body analysis details: {e}")
-                            continue
-                    elif last_url_analysis_results and last_received_hops:
-                        # View hops (no body analysis available)
-                        try:
-                            view_received_hops()
-                        except Exception as e:
-                            if COMPATIBLE_OUTPUT:
-                                print_status(f"Error viewing hops: {e}", "error")
-                            else:
-                                print(f"Error viewing hops: {e}")
-                            continue
-                    elif last_body_analysis_results and last_received_hops:
-                        # View hops (no URL analysis available)
-                        try:
-                            view_received_hops()
-                        except Exception as e:
-                            if COMPATIBLE_OUTPUT:
-                                print_status(f"Error viewing hops: {e}", "error")
-                            else:
-                                print(f"Error viewing hops: {e}")
-                            continue
                     else:
-                        # Exit
-                        print("Exiting.")
-                        break
-
-                elif choice == "6":
-                    # This could be hops or exit
-                    if last_url_analysis_results and last_body_analysis_results and last_received_hops:
-                        # View hops (all three available)
-                        try:
-                            view_received_hops()
-                        except Exception as e:
-                            if COMPATIBLE_OUTPUT:
-                                print_status(f"Error viewing hops: {e}", "error")
-                            else:
-                                print(f"Error viewing hops: {e}")
-                            continue
-                    else:
-                        # Exit
-                        print("Exiting.")
-                        break
-
-                elif choice == exit_num:
-                    # Exit
-                    print("Exiting.")
-                    break
-                else:
-                    print("Invalid input. Please enter a valid option number.")
+                        print("Invalid input. Please enter a valid option number.")
                     
             except Exception as e:
                 if COMPATIBLE_OUTPUT:

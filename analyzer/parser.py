@@ -451,3 +451,5 @@ def extract_all_attachments_recursive(msg):
         print(f"Error in recursive attachment extraction: {e}")
     
     return all_attachments
+
+#Complete analyzer.py!

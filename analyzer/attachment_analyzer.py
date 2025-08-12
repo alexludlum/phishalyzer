@@ -379,15 +379,50 @@ def analyze_file_by_content(attachment_data, api_key):
                     print(f"Error analyzing PDF content: {e}")
         
         elif detected_type in ['jpeg', 'png', 'gif', 'bmp', 'svg']:
-            # Image analysis
+            # Image analysis - ENHANCED with QR code detection
             try:
-                if detected_type == 'svg':
-                    if is_spoofed:
-                        results['content_analysis'] = "SVG file with suspicious extension - potential script injection risk"
-                else:
-                    if is_spoofed:
-                        results['content_analysis'] = f"Image file ({detected_type.upper()}) with suspicious extension"
+                # First check for QR codes
+                qr_analysis = qr_analyzer.analyze_image_qr_codes(attachment_data, api_key)
+                results['qr_analysis'] = qr_analysis
+                
+                # ENHANCED: If QR codes found, escalate threat level
+                if qr_analysis.get('qr_found'):
+                    qr_results = qr_analysis.get('qr_results', [])
+                    malicious_qr = any(qr.get('verdict') == 'malicious' for qr in qr_results if isinstance(qr, dict))
+                    suspicious_qr = any(qr.get('verdict') == 'suspicious' for qr in qr_results if isinstance(qr, dict))
+                    
+                    if malicious_qr:
+                        if COMPATIBLE_OUTPUT:
+                            print_status(f"CRITICAL: Image contains malicious QR codes - HIGH PHISHING RISK", "error")
+                        else:
+                            print(f"CRITICAL: Image contains malicious QR codes - HIGH PHISHING RISK")
                         
+                        results['threat_level'] = 'critical'
+                        results['content_analysis'] = "CRITICAL: Image with malicious QR codes detected"
+                    elif suspicious_qr:
+                        if COMPATIBLE_OUTPUT:
+                            print_status(f"WARNING: Image contains suspicious QR codes", "warning")
+                        else:
+                            print(f"WARNING: Image contains suspicious QR codes")
+                        
+                        results['threat_level'] = 'high'
+                        results['content_analysis'] = "HIGH RISK: Image with suspicious QR codes detected"
+                    else:
+                        if COMPATIBLE_OUTPUT:
+                            print_status(f"INFO: Image contains QR codes - verify destinations", "warning")
+                        else:
+                            print(f"INFO: Image contains QR codes - verify destinations")
+                        
+                        results['threat_level'] = 'high'  # Any QR code is high risk
+                        results['content_analysis'] = "HIGH RISK: Image contains QR codes"
+                
+                # Handle spoofing for images WITHOUT QR codes
+                elif is_spoofed:
+                    if detected_type == 'svg':
+                        results['content_analysis'] = "SVG file with suspicious extension - potential script injection risk"
+                    else:
+                        results['content_analysis'] = f"Image file ({detected_type.upper()}) with suspicious extension"
+                                
             except Exception as e:
                 if COMPATIBLE_OUTPUT:
                     print_status(f"Error analyzing image content: {e}", "error")

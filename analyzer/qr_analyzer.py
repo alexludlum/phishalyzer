@@ -296,7 +296,7 @@ def analyze_pdf_qr_codes(attachment_result, api_key):
 # Replace the display_qr_analysis function in qr_analyzer.py:
 
 def display_qr_analysis(attachment_index, qr_analysis):
-    """Display QR code analysis results with proper formatting."""
+    """Display QR code analysis results with proper formatting for both PDF and image sources."""
     if qr_analysis.get('error'):
         if COMPATIBLE_OUTPUT:
             if "Missing dependencies" in qr_analysis['error']:
@@ -327,15 +327,22 @@ def display_qr_analysis(attachment_index, qr_analysis):
             url = qr['url']
             verdict = qr['verdict']
             comment = qr['comment']
+            page = qr.get('page', 1)
             
             # QR code URL line with "Destination:" (bullet point format)
             display_url = defanger.defang_url(url) if defanger.should_defang() else url
             escaped_url = output.escape(display_url) if COMPATIBLE_OUTPUT else display_url
             
-            if COMPATIBLE_OUTPUT:
-                output.print(f"- QR {i} (Page {qr['page']}) Destination: [yellow]{escaped_url}[/yellow]")
+            # Handle both PDF (with pages) and image (page 1) formats
+            if page > 1:
+                location_text = f"QR {i} (Page {page}) Destination:"
             else:
-                print(f"- QR {i} (Page {qr['page']}) Destination: {escaped_url}")
+                location_text = f"QR {i} Destination:"
+            
+            if COMPATIBLE_OUTPUT:
+                output.print(f"- {location_text} [yellow]{escaped_url}[/yellow]")
+            else:
+                print(f"- {location_text} {escaped_url}")
             
             # Verdict line with consistent color scheme (bullet point format)
             verdict_colors = {
@@ -355,10 +362,108 @@ def display_qr_analysis(attachment_index, qr_analysis):
             # Non-URL QR code
             escaped_data = output.escape(qr['data']) if COMPATIBLE_OUTPUT else qr['data']
             escaped_type = output.escape(qr['type']) if COMPATIBLE_OUTPUT else qr['type']
+            page = qr.get('page', 1)
+            
+            if page > 1:
+                location_text = f"QR {i} (Page {page}) Data:"
+            else:
+                location_text = f"QR {i} Data:"
             
             if COMPATIBLE_OUTPUT:
-                output.print(f"- QR {i} (Page {qr['page']}) Data: {escaped_data}")
+                output.print(f"- {location_text} {escaped_data}")
                 output.print(f"- Type: {escaped_type}")
             else:
-                print(f"- QR {i} (Page {qr['page']}) Data: {escaped_data}")
+                print(f"- {location_text} {escaped_data}")
                 print(f"- Type: {escaped_type}")
+
+def analyze_image_qr_codes(attachment_result, api_key):
+    """Analyze standalone image attachments for QR codes using existing infrastructure."""
+    
+    # Check dependencies (reuse existing function)
+    missing_deps = check_qr_dependencies()
+    if missing_deps:
+        return {
+            'qr_found': False,
+            'error': f"Missing dependencies: {', '.join(missing_deps)}",
+            'qr_results': [],
+            'urls_found': []
+        }
+    
+    # Only analyze image files
+    filename = attachment_result.get('filename', '').lower()
+    image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.tif']
+    if not any(filename.endswith(ext) for ext in image_extensions):
+        return {
+            'qr_found': False, 
+            'error': None, 
+            'qr_results': [],
+            'urls_found': []
+        }
+    
+    # Get image content from the attachment
+    content = attachment_result.get('content')
+    if not content:
+        return {
+            'qr_found': False, 
+            'error': "No image content available", 
+            'qr_results': [],
+            'urls_found': []
+        }
+    
+    try:
+        # Convert content to PIL Image
+        pil_image = Image.open(io.BytesIO(content))
+        
+        # Use existing QR detection function
+        qr_codes = detect_qr_codes_in_image(pil_image)
+        
+        if not qr_codes:
+            return {
+                'qr_found': False, 
+                'error': "No QR codes detected in image", 
+                'qr_results': [],
+                'urls_found': []
+            }
+        
+        # Process QR codes using existing logic
+        qr_results = []
+        url_cache = {}
+        
+        for qr in qr_codes:
+            qr_data = qr['data']
+            
+            # Check if QR contains a URL (reuse existing function)
+            if is_url(qr_data):
+                verdict, comment = check_url_virustotal_qr(qr_data, api_key, url_cache)
+                
+                qr_results.append({
+                    'page': 1,  # Images don't have pages, but keep format consistent
+                    'type': qr['type'],
+                    'url': qr_data,
+                    'verdict': verdict,
+                    'comment': comment
+                })
+            else:
+                # Non-URL QR code data
+                qr_results.append({
+                    'page': 1,
+                    'type': qr['type'],
+                    'data': qr_data,
+                    'verdict': 'info',
+                    'comment': 'Non-URL QR code data'
+                })
+        
+        return {
+            'qr_found': len(qr_results) > 0,
+            'error': None,
+            'qr_results': qr_results,
+            'urls_found': [r for r in qr_results if 'url' in r]
+        }
+        
+    except Exception as e:
+        return {
+            'qr_found': False,
+            'error': f"Error analyzing image: {e}",
+            'qr_results': [],
+            'urls_found': []
+        }

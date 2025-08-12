@@ -1,382 +1,191 @@
-# phishalyzer
-A full-feature email analysis tool in Python. 
-
 # Phishalyzer
 
-A comprehensive email analysis tool designed to detect phishing attempts, malware, and security threats in email messages. Phishalyzer performs multi-layered analysis of email headers, content, URLs, attachments, and embedded elements to provide detailed security assessments.
+A comprehensive email security analysis tool designed to detect phishing attempts, malware, and security threats in email messages. Phishalyzer performs multi-layered analysis of email headers, content, URLs, attachments, and embedded elements to provide detailed security assessments.
 
-## Features
+## Overview
 
-### 🔍 **Multi-Layered Analysis**
-- **Header Analysis**: SPF, DKIM, DMARC authentication verification
-- **IP Address Analysis**: Geolocation and reputation checking via VirusTotal
-- **URL Analysis**: Domain reputation and malicious link detection
-- **Email Body Analysis**: Phishing content and social engineering detection
-- **Attachment Analysis**: File type spoofing, QR code detection, and content analysis
-- **Routing Analysis**: Email delivery path visualization
+Phishalyzer is a Python-based static analysis tool that helps security professionals, IT administrators, and researchers analyze suspicious emails for potential threats. The tool provides automated detection of common phishing techniques, malware delivery methods, and social engineering attempts while maintaining a safe analysis environment.
 
-### 🛡️ **Advanced Threat Detection**
-- **Critical Threats**: Spoofed executables, malicious QR codes
-- **File Extension Spoofing**: Detects executables disguised as documents
-- **QR Code Analysis**: Extracts and analyzes QR codes from PDF attachments
-- **Phishing Content**: Identifies credential harvesting and social engineering attempts
-- **Business Email Compromise (BEC)**: Detects executive impersonation patterns
+## Core Features
 
-### 🎯 **Executive Summary**
-- **Risk-Based Assessment**: CRITICAL, HIGH, MEDIUM, LOW threat levels
-- **Comprehensive Findings**: Aggregates results from all analysis modules
-- **Actionable Intelligence**: Clear threat categorization and recommendations
-- **IOC Tracking**: Counts confirmed malicious indicators
+### Multi-Layered Analysis
+- **Header Analysis**: Authentication verification (SPF, DKIM, DMARC) and routing examination
+- **IP Address Analysis**: Geolocation mapping and reputation checking via VirusTotal
+- **URL Analysis**: Domain reputation assessment and malicious link detection
+- **Email Body Analysis**: Phishing content detection and social engineering pattern recognition
+- **Attachment Analysis**: File type validation, extension spoofing detection, and content analysis
+- **QR Code Analysis**: Extraction and analysis of QR codes from PDF attachments
 
-### 🔧 **User-Friendly Interface**
-- **Interactive Menu System**: Navigate between different analysis views
-- **Defanged Output**: Safe display of URLs and IPs to prevent accidental clicks
-- **Color-Coded Results**: Visual threat level indicators
-- **Detailed Breakdowns**: Drill down into specific findings
-- **Universal Compatibility**: Works across different terminal environments
+### Advanced Threat Detection
+- File extension spoofing detection (executables disguised as documents)
+- Business Email Compromise (BEC) pattern recognition
+- Credential harvesting attempt identification
+- Payment redirect scam detection
+- Executive impersonation analysis
+- Malicious QR code identification
+
+### Risk Assessment
+- Four-tier risk classification system (CRITICAL, HIGH, MEDIUM, LOW)
+- Comprehensive threat categorization
+- Actionable intelligence reporting
+- Indicators of Compromise (IOC) tracking
+- Executive summary generation
+
+### User Interface
+- Interactive command-line menu system
+- Color-coded threat level indicators
+- Defanged output for safe URL and IP display
+- Detailed analysis breakdowns
+- Universal terminal compatibility
 
 ## Installation
 
-### Prerequisites
+### Requirements
+- Python 3.7 or higher
+- Internet connection for VirusTotal API integration
 
+### Basic Installation
 ```bash
-# Python 3.7 or higher required
-python --version
-
-# Install required packages
+git clone https://github.com/your-repo/phishalyzer.git
+cd phishalyzer
 pip install -r requirements.txt
 ```
 
 ### Required Dependencies
-
 ```
-extract-msg        # MSG file parsing
-dnspython         # DNS lookups
-requests          # HTTP requests for API calls
-email-validator   # Email validation
-PyMuPDF          # PDF analysis (optional)
-Pillow           # Image processing (optional)
-opencv-python    # QR code detection (optional)
+extract-msg        # Microsoft Outlook MSG file parsing
+dnspython         # DNS lookups and validation
+requests          # HTTP requests for API integration
+email-validator   # Email address validation
 ```
 
 ### Optional Dependencies
-
-For enhanced functionality, install these additional packages:
-
 ```bash
-# For QR code analysis in PDF attachments
-pip install PyMuPDF Pillow opencv-python
+# Enhanced document analysis
+pip install PyMuPDF python-docx openpyxl python-pptx
 
-# For advanced document analysis
-pip install python-docx openpyxl python-pptx
+# QR code detection and image processing
+pip install opencv-python Pillow
 
-# For OCR capabilities
+# OCR capabilities for image text extraction
 pip install pytesseract
 ```
 
 ## Quick Start
 
 ### Basic Usage
-
 ```bash
-# Analyze an email file
-python phishalyzer.py path/to/email.eml
+# Analyze a single email file
+python phishalyzer.py /path/to/email.eml
 
-# Interactive mode (will prompt for file)
+# Interactive mode
 python phishalyzer.py
 ```
 
 ### Supported File Formats
-
-- **EML files**: Standard email format from most email clients
-- **MSG files**: Microsoft Outlook email format
-- **Raw email**: RFC822 formatted email messages
+- EML files (standard email format)
+- MSG files (Microsoft Outlook format)
+- Raw RFC822 email messages
 
 ## Configuration
 
-### VirusTotal API Setup
-
-1. **Get API Key**: Register at [VirusTotal](https://virustotal.com/gui/my-apikey)
-2. **Configure in Phishalyzer**: 
-   - Run phishalyzer
-   - Select "2: VirusTotal API Settings"
-   - Enter your API key
+### VirusTotal Integration
+1. Register for a free account at VirusTotal
+2. Obtain your API key from the VirusTotal dashboard
+3. Configure the API key through the Phishalyzer menu system
 
 ### Output Modes
+- **Fanged Mode**: Display URLs and IPs in normal format
+- **Defanged Mode**: Display URLs and IPs in safe format (https[:]//example[.]com)
 
-- **Fanged Mode** (default): Shows URLs and IPs in normal format
-- **Defanged Mode**: Shows URLs and IPs in safe format (https[:]//example[.]com)
+## Analysis Workflow
 
-Access via Main Menu → "3: Output Settings"
+### Header Analysis
+Examines email headers for authentication failures, routing anomalies, and sender validation issues. Identifies missing or failed SPF, DKIM, and DMARC records that may indicate spoofing attempts.
 
-## Analysis Modules
+### Content Analysis
+Scans email body content for phishing keywords, social engineering techniques, and suspicious patterns. Analyzes both plain text and HTML content for malicious indicators.
 
-### 1. Header Analysis
-- **Authentication Check**: SPF, DKIM, DMARC validation
-- **Routing Analysis**: Received header examination
-- **Sender Validation**: From/Reply-To/Return-Path consistency
-- **Security Indicators**: Missing or failed authentication
+### URL Analysis
+Extracts URLs from headers, body content, and attachments. Groups URLs by domain and checks reputation against VirusTotal database. Identifies redirects and suspicious link patterns.
 
-### 2. IP Address Analysis
-- **Geolocation**: Country and ISP identification
-- **Reputation Check**: VirusTotal malicious IP detection
-- **Private IP Filtering**: Excludes internal network addresses
-- **Comprehensive Coverage**: Headers and email body IPs
+### Attachment Analysis
+Performs deep analysis of email attachments including file type validation, magic number verification, and content extraction. Detects file extension spoofing and analyzes embedded content for threats.
 
-### 3. URL Analysis
-- **Domain Grouping**: Organizes URLs by domain for efficiency
-- **Reputation Checking**: VirusTotal URL analysis
-- **Link Extraction**: From email body, HTML content, and attachments
-- **Defanging Support**: Safe display of malicious URLs
-
-### 4. Email Body Analysis
-- **Phishing Patterns**: 14 categories of phishing techniques
-- **Risk Scoring**: Weighted scoring based on threat severity
-- **Social Engineering**: BEC, urgency manipulation, authority impersonation
-- **Content Classification**: High, medium, low risk categorization
-
-### 5. Attachment Analysis
-- **File Type Detection**: Magic number-based identification
-- **Extension Spoofing**: Detects mismatched file types/extensions
-- **VirusTotal Integration**: File hash reputation checking
-- **QR Code Extraction**: PDF QR code analysis and URL checking
-- **Content Analysis**: Text extraction and phishing detection
-
-## Menu System
-
-### Main Menu Options
-
-1. **Start Analysis**: Analyze an email file
-2. **VirusTotal API Settings**: Configure API key
-3. **Output Settings**: Toggle defanged/fanged mode
-4. **View URL Findings**: Detailed URL analysis results
-5. **View Body Analysis**: Phishing content breakdown
-6. **View Email Routing**: Received header analysis
-7. **Generate Executive Summary**: Comprehensive threat assessment
-
-### Dynamic Menu
-
-Menu options appear based on available analysis results. For example:
-- URL findings only appear if URLs were detected
-- Body analysis only appears if content was analyzed
-- Executive summary appears after any analysis is completed
+### Risk Assessment
+Aggregates findings from all analysis modules to generate comprehensive risk scores and threat categorizations. Provides executive-level summaries for decision making.
 
 ## Understanding Results
 
-### Risk Levels
-
-- **CRITICAL**: Immediate threat requiring action
-  - Spoofed executables disguised as documents
-  - Malicious QR codes with confirmed threats
-  
-- **HIGH**: Significant security concerns
-  - Malicious domains/IPs confirmed by VirusTotal
-  - Multiple authentication failures
-  - QR codes (even unchecked ones)
-  - High-risk phishing content
-
-- **MEDIUM**: Moderate risk requiring attention
-  - Suspicious indicators from VirusTotal
-  - Medium-risk phishing patterns
-  - File extension mismatches
-
+### Risk Categories
+- **CRITICAL**: Immediate threats requiring urgent action
+- **HIGH**: Significant security concerns requiring investigation
+- **MEDIUM**: Moderate risks requiring attention
 - **LOW**: Minor concerns for awareness
-  - Unchecked domains/IPs
-  - Low-risk phishing patterns
-  - Missing non-critical headers
 
-### Threat Categories
+### Threat Types
+- **Malicious Indicators**: VirusTotal-confirmed threats
+- **Suspicious Indicators**: Potentially harmful content
+- **Warning Factors**: Items requiring manual review
+- **Critical Threats**: Immediate security risks
 
-#### Critical Threats
-- Spoofed executables (.exe files disguised as .pdf)
-- Malicious QR codes with confirmed bad destinations
+## Use Cases
 
-#### Malicious Indicators
-- VirusTotal-confirmed malicious domains, IPs, or files
-- Counted toward total IOC (Indicators of Compromise)
+### Security Operations
+- Incident response and threat hunting
+- Email security monitoring
+- Phishing campaign analysis
+- Threat intelligence gathering
 
-#### High Risk Findings
-- Authentication failures (SPF, DKIM, DMARC)
-- QR codes in attachments
-- High-risk phishing content
-- File extension spoofing
+### IT Administration
+- Email security assessment
+- User awareness training support
+- Policy compliance verification
+- Security control validation
 
-#### Suspicious Indicators
-- VirusTotal-flagged suspicious items
-- Potentially harmful content
+### Research and Education
+- Malware analysis training
+- Phishing technique research
+- Security awareness demonstrations
+- Academic cybersecurity studies
 
-#### Warning Factors
-- Unchecked domains/IPs
-- Missing headers
-- Low-risk phishing patterns
+## Safety and Security
 
-## Sample Output
+### Static Analysis Only
+Phishalyzer performs static analysis without executing attachments or following links, maintaining a safe analysis environment.
 
-```
-Overall Risk Assessment: HIGH RISK
+### Defanged Output
+URLs and IP addresses can be displayed in defanged format to prevent accidental clicks during analysis review.
 
-MALICIOUS INDICATORS:
-- Malicious domain: suspicious-bank[.]com (3 URLs)
-- Malicious file: security_update.pdf
+### Isolated Environment
+Recommended for use in virtual machines or sandboxed environments when analyzing highly suspicious content.
 
-HIGH RISK FINDINGS:
-- Header issue: SPF: missing
-- Header issue: DKIM: missing
-- Header issue: DMARC: missing
-- High-risk phishing content: Credential Harvesting, Payment Redirect Scam
-- Unchecked QR code: security_update.pdf
+## Limitations
 
-SUSPICIOUS INDICATORS:
-- Suspicious domain: fake-support[.]com (1 URL)
+- Point-in-time analysis based on current threat intelligence
+- Requires internet connectivity for VirusTotal integration
+- Static analysis may miss dynamic or time-based threats
+- Manual verification recommended for critical security decisions
 
-Total Malicious Indicators: 2
-Total Warning Factors: 3
-```
-
-## File Structure
+## Project Structure
 
 ```
 phishalyzer/
 ├── phishalyzer.py              # Main application
-├── analyzer/                   # Analysis modules
-│   ├── __init__.py
-│   ├── parser.py               # Email parsing (EML/MSG)
-│   ├── header_analyzer.py      # Header analysis
-│   ├── ioc_extractor.py        # IP address analysis
-│   ├── url_extractor.py        # URL analysis
-│   ├── body_analyzer.py        # Email body analysis
-│   ├── attachment_analyzer.py  # Attachment analysis
-│   ├── qr_analyzer.py          # QR code detection
-│   ├── attachment_content_analyzer.py  # Attachment content analysis
-│   ├── defanger.py             # URL/IP defanging
-│   └── compatible_output.py    # Universal output system
+├── analyzer/                   # Core analysis modules
 ├── requirements.txt            # Python dependencies
 ├── samples/                    # Sample email files
-└── README.md                   # This file
+└── README.md                   # Documentation
 ```
-
-## Advanced Usage
-
-### Batch Analysis
-
-```bash
-# Analyze multiple files
-for file in samples/*.eml; do
-    echo "Analyzing $file"
-    python phishalyzer.py "$file" > "results/$(basename $file).txt"
-done
-```
-
-### Automated Scripting
-
-```python
-from analyzer import parser, url_extractor, attachment_analyzer
-
-# Load email
-msg_obj, filetype = parser.load_email('email.eml')
-
-# Run specific analysis
-url_results = url_extractor.analyze_urls(msg_obj, api_key)
-attachment_results = attachment_analyzer.analyze_attachments(msg_obj, api_key)
-```
-
-### Configuration Files
-
-Settings are stored in:
-- `~/.phishalyzer_vt_api_key`: VirusTotal API key
-- `~/.phishalyzer_output_mode`: Output mode (fanged/defanged)
-
-## Troubleshooting
-
-### Common Issues
-
-1. **"No email message object provided"**
-   - File is not a valid email format
-   - File is corrupted or empty
-   - Try with a known good .eml file
-
-2. **"Missing dependencies"**
-   - Install required packages: `pip install -r requirements.txt`
-   - For full functionality: `pip install PyMuPDF Pillow opencv-python`
-
-3. **VirusTotal API issues**
-   - Verify API key is correct
-   - Check rate limits (4 requests/minute for free accounts)
-   - Ensure network connectivity
-
-4. **QR code analysis not working**
-   - Install: `pip install PyMuPDF Pillow opencv-python`
-   - Ensure PDF contains actual QR codes
-
-### Debug Mode
-
-```bash
-# Debug email parsing issues
-python debug_parser.py email.eml
-
-# Check module availability
-python -c "from analyzer import *; print('All modules loaded')"
-```
-
-## Security Considerations
-
-### Safe Usage
-- **Defanged Mode**: Use when sharing results to prevent accidental clicks
-- **Isolated Environment**: Run in VM or sandboxed environment for suspicious emails
-- **API Key Security**: Keep VirusTotal API key confidential
-
-### Limitations
-- **Static Analysis Only**: Does not execute attachments or follow links
-- **Point-in-Time**: Results reflect reputation at time of analysis
-- **False Positives**: Manual verification recommended for critical decisions
 
 ## Contributing
 
-### Development Setup
-
-```bash
-git clone https://github.com/your-repo/phishalyzer.git
-cd phishalyzer
-python -m venv venv
-source venv/bin/activate  # or venv\Scripts\activate on Windows
-pip install -r requirements.txt
-```
-
-### Adding Analysis Modules
-
-1. Create new module in `analyzer/` directory
-2. Import in `phishalyzer.py`
-3. Add to analysis workflow in `run_analysis()`
-4. Update `compile_summary_findings()` for executive summary
-
-### Testing
-
-```bash
-# Test with sample emails
-python phishalyzer.py samples/test_email.eml
-
-# Run debug scripts
-python debug_parser.py samples/test_email.eml
-```
+Contributions are welcome through pull requests. Please ensure code follows the existing style and includes appropriate testing.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License. See the LICENSE file for details.
 
-## Acknowledgments
+## Disclaimer
 
-- VirusTotal API for reputation data
-- PyMuPDF for PDF analysis capabilities
-- OpenCV for QR code detection
-- Python email library for message parsing
-
-## Support
-
-For issues, feature requests, or questions:
-1. Check the troubleshooting section above
-2. Review existing issues on GitHub
-3. Create a new issue with detailed information
-
----
-
-**⚠️ Disclaimer**: Phishalyzer is a static analysis tool for educational and defensive purposes. Always exercise caution when analyzing suspicious emails and never execute or interact with potentially malicious content.
+Phishalyzer is designed for educational and defensive security purposes. Users should exercise caution when analyzing suspicious emails and never execute or interact with potentially malicious content. Always follow your organization's security policies and procedures when handling suspicious emails.

@@ -570,10 +570,9 @@ def display_detailed_body_analysis(results):
         findings = results["findings"]
         risk_score = results["risk_score"]
         
-        if COMPATIBLE_OUTPUT:
-            output.print("\n[magenta]===== DETAILED BODY ANALYSIS =====[/magenta]\n")
-        else:
-            print("\n===== DETAILED BODY ANALYSIS =====\n")
+        # FIXED: Use standardized header format
+        from .compatible_output import print_header
+        print_header("DETAILED BODY ANALYSIS")
         
         # Sort findings by risk level
         risk_order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}

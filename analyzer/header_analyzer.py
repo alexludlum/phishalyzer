@@ -535,7 +535,7 @@ def analyze_headers(msg_obj: Message):
                     print("Malicious factors:")
                 for f in factors_malicious:
                     escaped_f = output.escape(f) if COMPATIBLE_OUTPUT else f
-                    print(f"  - {escaped_f}")
+                    print(f"- {escaped_f}")
 
             if factors_warn:
                 if COMPATIBLE_OUTPUT:
@@ -544,7 +544,7 @@ def analyze_headers(msg_obj: Message):
                     print("Warning factors:")
                 for f in factors_warn:
                     escaped_f = output.escape(f) if COMPATIBLE_OUTPUT else f
-                    print(f"  - {escaped_f}")
+                    print(f"- {escaped_f}")
 
             if factors_benign:
                 if COMPATIBLE_OUTPUT:
@@ -553,7 +553,7 @@ def analyze_headers(msg_obj: Message):
                     print("Benign factors:")
                 for f in factors_benign:
                     escaped_f = output.escape(f) if COMPATIBLE_OUTPUT else f
-                    print(f"  - {escaped_f}")
+                    print(f"- {escaped_f}")
 
             if not (factors_benign or factors_warn or factors_malicious):
                 print("  No security factors detected.")

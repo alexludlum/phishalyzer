@@ -616,7 +616,7 @@ def display_detailed_body_analysis(results):
                 escaped_keyword = output.escape(keyword) if COMPATIBLE_OUTPUT else keyword
                 escaped_match_info = output.escape(match_info) if COMPATIBLE_OUTPUT else match_info
                 
-                print(f"  - \"{escaped_keyword}\" ({escaped_match_info})")
+                print(f"- \"{escaped_keyword}\" ({escaped_match_info})")
             
             print()  # Blank line between categories
         

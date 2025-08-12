@@ -406,7 +406,7 @@ def extract_all_attachments_recursive(msg):
                             for nested_att in nested_attachments:
                                 nested_att['source'] = 'nested'
                                 all_attachments.append(nested_att)
-                                print(f"  - Extracted nested attachment: {nested_att['filename']}")
+                                print(f"- Extracted nested attachment: {nested_att['filename']}")
                             
                         elif hasattr(data, '__len__') and len(data) > 0:
                             # It's direct binary data

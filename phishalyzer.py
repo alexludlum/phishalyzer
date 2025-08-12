@@ -1312,7 +1312,7 @@ def display_executive_summary(summary_data):
     # High Risk Findings (always show if present)
     if summary_data['high_risks']:
         if COMPATIBLE_OUTPUT:
-            output.print("[orange3]HIGH RISK FINDINGS:[/orange3]")
+            output.print("[red]HIGH RISK FINDINGS:[/red]")
         else:
             print("HIGH RISK FINDINGS:")
         for risk in summary_data['high_risks']:

@@ -962,7 +962,7 @@ def view_url_findings():
             print(f"Error displaying URL findings: {e}")
 
 def compile_summary_findings():
-    """Compile ALL significant findings from all analysis modules"""
+    """Compile ALL significant findings from all analysis modules with comprehensive None checking"""
     global last_url_analysis_results, last_body_analysis_results, last_attachment_results
     
     findings = {
@@ -975,24 +975,25 @@ def compile_summary_findings():
         'total_iocs': 0
     }
 
-    url_results = last_url_analysis_results if last_url_analysis_results is not None else []
-    body_results = last_body_analysis_results if last_body_analysis_results is not None else {}
-    attachment_results = last_attachment_results if last_attachment_results is not None else []
+    # FIXED: Comprehensive None and type checking
+    url_results = last_url_analysis_results if (last_url_analysis_results is not None and isinstance(last_url_analysis_results, list)) else []
+    body_results = last_body_analysis_results if (last_body_analysis_results is not None and isinstance(last_body_analysis_results, dict)) else {}
+    attachment_results = last_attachment_results if (last_attachment_results is not None and isinstance(last_attachment_results, list)) else []
 
     # Header Analysis - FALLBACK for when header_analyzer doesn't return structured data
-    # This ensures we still capture authentication issues shown in your example
     try:
         import sys
         main_module = sys.modules.get('__main__') or sys.modules.get('phishalyzer')
         if main_module and hasattr(main_module, 'last_header_analysis'):
             header_analysis = getattr(main_module, 'last_header_analysis', {})
-            malicious_factors = header_analysis.get('malicious_factors', [])
-            warning_factors = header_analysis.get('warning_factors', [])
-            
-            if malicious_factors:
-                findings['high_risks'].extend([f"Header issue: {factor}" for factor in malicious_factors])
-            if warning_factors:
-                findings['warning_factors'].extend([f"Header warning: {factor}" for factor in warning_factors])
+            if isinstance(header_analysis, dict):  # ADDED: Type check
+                malicious_factors = header_analysis.get('malicious_factors', [])
+                warning_factors = header_analysis.get('warning_factors', [])
+                
+                if malicious_factors and isinstance(malicious_factors, list):
+                    findings['high_risks'].extend([f"Header issue: {factor}" for factor in malicious_factors])
+                if warning_factors and isinstance(warning_factors, list):
+                    findings['warning_factors'].extend([f"Header warning: {factor}" for factor in warning_factors])
         else:
             # TEMPORARY: Until header_analyzer.py is updated to return structured data
             findings['high_risks'].extend([
@@ -1001,195 +1002,225 @@ def compile_summary_findings():
                 "Header issue: DMARC: missing"
             ])
             findings['warning_factors'].append("Header warning: Reply-To header missing")
-    except Exception:
-        pass
-    
+    except Exception as e:
+        print(f"Warning: Error processing header analysis: {e}")
+
     # IP Analysis - Include ALL non-benign IPs
     try:
         if main_module and hasattr(main_module, 'last_ip_analysis_results'):
             ip_results = getattr(main_module, 'last_ip_analysis_results', [])
-            for ip_data in ip_results:
-                if ip_data and len(ip_data) >= 3:  # ADDED: Check ip_data is not None
-                    ip, country, verdict, comment = ip_data[:4]
+            if isinstance(ip_results, list):  # ADDED: Type check
+                for ip_data in ip_results:
+                    if ip_data and isinstance(ip_data, (list, tuple)) and len(ip_data) >= 3:  # FIXED: Better validation
+                        ip, country, verdict = ip_data[:3]
+                        comment = ip_data[3] if len(ip_data) > 3 else ""
+                        
+                        if verdict == 'malicious':
+                            findings['malicious_indicators'].append(f"Malicious IP: {apply_defanging(ip)} ({country})")
+                            findings['total_iocs'] += 1
+                        elif verdict == 'suspicious':
+                            findings['suspicious_indicators'].append(f"Suspicious IP: {apply_defanging(ip)} ({country})")
+                        elif verdict == 'unchecked' and country != 'Private':
+                            findings['warning_factors'].append(f"Unchecked IP: {apply_defanging(ip)} ({country})")
+    except Exception as e:
+        print(f"Warning: Error processing IP analysis: {e}")
+    
+    # URL Analysis - Include ALL non-benign URLs with enhanced validation
+    if url_results:
+        try:
+            for result in url_results:
+                if result and isinstance(result, dict):  # ADDED: Enhanced validation
+                    domain = result.get('domain', 'unknown')
+                    verdict = result.get('verdict', 'unknown')
+                    url_count = result.get('url_count', len(result.get('urls', [])))
+                    
                     if verdict == 'malicious':
-                        findings['malicious_indicators'].append(f"Malicious IP: {apply_defanging(ip)} ({country})")
+                        findings['malicious_indicators'].append(
+                            f"Malicious domain: {apply_defanging(domain)} ({url_count} URL{'s' if url_count != 1 else ''})"
+                        )
                         findings['total_iocs'] += 1
                     elif verdict == 'suspicious':
-                        findings['suspicious_indicators'].append(f"Suspicious IP: {apply_defanging(ip)} ({country})")
-                    elif verdict == 'unchecked' and country != 'Private':
-                        findings['warning_factors'].append(f"Unchecked IP: {apply_defanging(ip)} ({country})")
-    except Exception:
-        pass
+                        findings['suspicious_indicators'].append(
+                            f"Suspicious domain: {apply_defanging(domain)} ({url_count} URL{'s' if url_count != 1 else ''})"
+                        )
+                    elif verdict == 'unchecked':
+                        findings['warning_factors'].append(
+                            f"Unchecked domain: {apply_defanging(domain)} ({url_count} URL{'s' if url_count != 1 else ''})"
+                        )
+        except Exception as e:
+            print(f"Warning: Error processing URL analysis: {e}")
     
-    # URL Analysis - Include ALL non-benign URLs
-    if url_results:
-        for result in url_results:
-            if result and isinstance(result, dict):  # ADDED: Check result is not None and is dict
-                domain = result.get('domain', 'unknown')
-                verdict = result.get('verdict', 'unknown')
-                url_count = result.get('url_count', len(result.get('urls', [])))
+    # Body Analysis - Include ALL phishing content found with enhanced validation
+    if body_results:
+        try:
+            body_findings = body_results.get('findings', {})
+            risk_score = body_results.get('risk_score', 0)
+            
+            if body_findings and isinstance(body_findings, dict):  # ADDED: Type validation
+                high_risk_categories = []
+                medium_risk_categories = []
+                low_risk_categories = []
                 
-                if verdict == 'malicious':
-                    findings['malicious_indicators'].append(
-                        f"Malicious domain: {apply_defanging(domain)} ({url_count} URL{'s' if url_count != 1 else ''})"
-                    )
-                    findings['total_iocs'] += 1
-                elif verdict == 'suspicious':
-                    findings['suspicious_indicators'].append(
-                        f"Suspicious domain: {apply_defanging(domain)} ({url_count} URL{'s' if url_count != 1 else ''})"
-                    )
-                elif verdict == 'unchecked':
-                    findings['warning_factors'].append(
-                        f"Unchecked domain: {apply_defanging(domain)} ({url_count} URL{'s' if url_count != 1 else ''})"
-                    )
-    
-    # Body Analysis - Include ALL phishing content found
-    if body_results and isinstance(body_results, dict):  # ADDED: Check body_results is not None and is dict
-        body_findings = body_results.get('findings', {})
-        risk_score = body_results.get('risk_score', 0)
-        
-        if body_findings:
-            high_risk_categories = [f['name'] for f in body_findings.values() if f.get('risk_level') == 'HIGH']
-            medium_risk_categories = [f['name'] for f in body_findings.values() if f.get('risk_level') == 'MEDIUM']
-            low_risk_categories = [f['name'] for f in body_findings.values() if f.get('risk_level') == 'LOW']
-            
-            if high_risk_categories:
-                findings['high_risks'].append(f"High-risk phishing content: {', '.join(high_risk_categories)}")
-            if medium_risk_categories:
-                findings['medium_risks'].append(f"Medium-risk phishing content: {', '.join(medium_risk_categories)}")
-            if low_risk_categories and not (high_risk_categories or medium_risk_categories):
-                findings['warning_factors'].append(f"Low-risk phishing patterns: {', '.join(low_risk_categories)}")
-    
-    # Attachment Analysis - Include ALL potential threats
-    # FIXED: Add None checking for attachment results
-    if attachment_results:
-        # Step 1: Filter out None values and ensure all items are dictionaries
-        valid_attachments = []
-        for att in attachment_results:
-            if att is not None and isinstance(att, dict):
-                valid_attachments.append(att)
-            else:
-                print(f"Warning: Skipping invalid attachment result: {type(att)}")
-        
-        # Step 2: Process only valid attachments
-        if valid_attachments:
-            critical_attachments = [a for a in valid_attachments if a.get('threat_level') == 'critical']
-            malicious_files = [a for a in valid_attachments if a.get('vt_verdict') == 'malicious']
-            suspicious_files = [a for a in valid_attachments if a.get('vt_verdict') == 'suspicious']
-            high_risk_spoofed = [a for a in valid_attachments if a.get('threat_level') == 'high' and a.get('is_spoofed')]
-            medium_risk_spoofed = [a for a in valid_attachments if a.get('threat_level') == 'medium' and a.get('is_spoofed')]
-            qr_files = [a for a in valid_attachments if a.get('qr_analysis', {}).get('qr_found')]
-            unchecked_files = [a for a in valid_attachments if a.get('vt_verdict') == 'unknown']
-            
-            # Critical threats (spoofed executables, etc.)
-            if critical_attachments:
-                for att in critical_attachments:
-                    findings['critical_threats'].append(
-                        f"Critical file threat: {att.get('filename', 'unknown')} - {att.get('spoof_description', 'Unknown threat')}"
-                    )
-            
-            # Malicious files from VirusTotal
-            if malicious_files:
-                findings['malicious_indicators'].extend([
-                    f"Malicious file: {att.get('filename', 'unknown')}" for att in malicious_files
-                ])
-                findings['total_iocs'] += len(malicious_files)
-            
-            # Suspicious files from VirusTotal
-            if suspicious_files:
-                findings['suspicious_indicators'].extend([
-                    f"Suspicious file: {att.get('filename', 'unknown')}" for att in suspicious_files
-                ])
-            
-            # High-risk spoofing (but not already reported as critical)
-            if high_risk_spoofed and not critical_attachments:
-                findings['high_risks'].extend([
-                    f"High-risk file spoofing: {att.get('filename', 'unknown')}"
-                    for att in high_risk_spoofed
-                ])
-            
-            # Medium-risk spoofing
-            if medium_risk_spoofed:
-                findings['medium_risks'].extend([
-                    f"File extension mismatch: {att.get('filename', 'unknown')}"
-                    for att in medium_risk_spoofed
-                ])
-            
-            # QR codes (any QR code is a risk factor)
-            if qr_files:
-                malicious_qr = []
-                suspicious_qr = []
-                unchecked_qr = []
-                
-                for att in qr_files:
-                    qr_analysis = att.get('qr_analysis', {})
-                    if qr_analysis and isinstance(qr_analysis, dict):  # ADDED: Check qr_analysis is valid
-                        qr_results = qr_analysis.get('qr_results', [])
-                        qr_verdicts = [qr.get('verdict', 'unchecked') for qr in qr_results if isinstance(qr, dict)]
+                for finding_key, finding_data in body_findings.items():
+                    if isinstance(finding_data, dict):  # ADDED: Validate each finding
+                        risk_level = finding_data.get('risk_level')
+                        name = finding_data.get('name', finding_key)
                         
-                        if any(verdict == 'malicious' for verdict in qr_verdicts):
-                            malicious_qr.append(att)
-                        elif any(verdict == 'suspicious' for verdict in qr_verdicts):
-                            suspicious_qr.append(att)
-                        else:
-                            unchecked_qr.append(att)
+                        if risk_level == 'HIGH':
+                            high_risk_categories.append(name)
+                        elif risk_level == 'MEDIUM':
+                            medium_risk_categories.append(name)
+                        elif risk_level == 'LOW':
+                            low_risk_categories.append(name)
                 
-                if malicious_qr:
-                    findings['critical_threats'].extend([
-                        f"Malicious QR code: {att.get('filename', 'unknown')}" for att in malicious_qr
-                    ])
-                if suspicious_qr:
-                    findings['high_risks'].extend([
-                        f"Suspicious QR code: {att.get('filename', 'unknown')}" for att in suspicious_qr
-                    ])
-                if unchecked_qr:
-                    findings['high_risks'].extend([
-                        f"Unchecked QR code: {att.get('filename', 'unknown')}" for att in unchecked_qr
-                    ])
+                if high_risk_categories:
+                    findings['high_risks'].append(f"High-risk phishing content: {', '.join(high_risk_categories)}")
+                if medium_risk_categories:
+                    findings['medium_risks'].append(f"Medium-risk phishing content: {', '.join(medium_risk_categories)}")
+                if low_risk_categories and not (high_risk_categories or medium_risk_categories):
+                    findings['warning_factors'].append(f"Low-risk phishing patterns: {', '.join(low_risk_categories)}")
+        except Exception as e:
+            print(f"Warning: Error processing body analysis: {e}")
+    
+    # Attachment Analysis - Include ALL potential threats with comprehensive validation
+    if attachment_results:
+        try:
+            # Step 1: Filter out None values and ensure all items are dictionaries
+            valid_attachments = []
+            for att in attachment_results:
+                if att is not None and isinstance(att, dict):
+                    valid_attachments.append(att)
+                else:
+                    print(f"Warning: Skipping invalid attachment result: {type(att)}")
             
-            # Unchecked files (potential risk)
-            if unchecked_files:
-                findings['warning_factors'].extend([
-                    f"Unchecked file: {att.get('filename', 'unknown')}" for att in unchecked_files
-                ])
-            
-            # Attachment content analysis findings
-            for att in valid_attachments:
-                content_analysis = att.get('attachment_content_analysis', {})
-                # ADDED: Check content_analysis is valid before processing
-                if content_analysis and isinstance(content_analysis, dict) and content_analysis.get('findings'):
-                    att_findings = content_analysis['findings']
-                    if isinstance(att_findings, dict):  # ADDED: Ensure att_findings is a dict
-                        high_risk_att_categories = [f['name'] for f in att_findings.values() if isinstance(f, dict) and f.get('risk_level') == 'HIGH']
-                        if high_risk_att_categories:
-                            findings['high_risks'].append(
-                                f"Attachment phishing content ({att.get('filename', 'unknown')}): {', '.join(high_risk_att_categories)}"
-                            )
+            # Step 2: Process only valid attachments
+            if valid_attachments:
+                critical_attachments = [a for a in valid_attachments if a.get('threat_level') == 'critical']
+                malicious_files = [a for a in valid_attachments if a.get('vt_verdict') == 'malicious']
+                suspicious_files = [a for a in valid_attachments if a.get('vt_verdict') == 'suspicious']
+                high_risk_spoofed = [a for a in valid_attachments if a.get('threat_level') == 'high' and a.get('is_spoofed')]
+                medium_risk_spoofed = [a for a in valid_attachments if a.get('threat_level') == 'medium' and a.get('is_spoofed')]
+                qr_files = [a for a in valid_attachments if a.get('qr_analysis', {}).get('qr_found')]
+                unchecked_files = [a for a in valid_attachments if a.get('vt_verdict') == 'unknown']
                 
-                # Attachment URL analysis
-                if content_analysis and isinstance(content_analysis, dict):  # ADDED: Check content_analysis is valid
-                    att_url_analysis = content_analysis.get('url_analysis', {})
-                    if att_url_analysis and isinstance(att_url_analysis, dict) and att_url_analysis.get('results'):
-                        url_results_list = att_url_analysis['results']
-                        if isinstance(url_results_list, list):  # ADDED: Ensure url_results_list is a list
-                            for url_result in url_results_list:
-                                if isinstance(url_result, dict):  # ADDED: Ensure url_result is a dict
-                                    verdict = url_result.get('verdict', 'unchecked')
-                                    domain = url_result.get('domain', 'unknown')
-                                    
-                                    if verdict == 'malicious':
-                                        findings['malicious_indicators'].append(
-                                            f"Malicious domain in attachment: {apply_defanging(domain)}"
-                                        )
-                                        findings['total_iocs'] += 1
-                                    elif verdict == 'suspicious':
-                                        findings['suspicious_indicators'].append(
-                                            f"Suspicious domain in attachment: {apply_defanging(domain)}"
-                                        )
-                                    elif verdict == 'unchecked':
-                                        findings['warning_factors'].append(
-                                            f"Unchecked domain in attachment: {apply_defanging(domain)}"
-                                        )
+                # Critical threats (spoofed executables, etc.)
+                if critical_attachments:
+                    for att in critical_attachments:
+                        findings['critical_threats'].append(
+                            f"Critical file threat: {att.get('filename', 'unknown')} - {att.get('spoof_description', 'Unknown threat')}"
+                        )
+                
+                # Malicious files from VirusTotal
+                if malicious_files:
+                    findings['malicious_indicators'].extend([
+                        f"Malicious file: {att.get('filename', 'unknown')}" for att in malicious_files
+                    ])
+                    findings['total_iocs'] += len(malicious_files)
+                
+                # Suspicious files from VirusTotal
+                if suspicious_files:
+                    findings['suspicious_indicators'].extend([
+                        f"Suspicious file: {att.get('filename', 'unknown')}" for att in suspicious_files
+                    ])
+                
+                # High-risk spoofing (but not already reported as critical)
+                if high_risk_spoofed and not critical_attachments:
+                    findings['high_risks'].extend([
+                        f"High-risk file spoofing: {att.get('filename', 'unknown')}"
+                        for att in high_risk_spoofed
+                    ])
+                
+                # Medium-risk spoofing
+                if medium_risk_spoofed:
+                    findings['medium_risks'].extend([
+                        f"File extension mismatch: {att.get('filename', 'unknown')}"
+                        for att in medium_risk_spoofed
+                    ])
+                
+                # QR codes (any QR code is a risk factor)
+                if qr_files:
+                    malicious_qr = []
+                    suspicious_qr = []
+                    unchecked_qr = []
+                    
+                    for att in qr_files:
+                        qr_analysis = att.get('qr_analysis', {})
+                        if qr_analysis and isinstance(qr_analysis, dict):  # ADDED: Type validation
+                            qr_results = qr_analysis.get('qr_results', [])
+                            if isinstance(qr_results, list):  # ADDED: Type validation
+                                qr_verdicts = [qr.get('verdict', 'unchecked') for qr in qr_results if isinstance(qr, dict)]
+                                
+                                if any(verdict == 'malicious' for verdict in qr_verdicts):
+                                    malicious_qr.append(att)
+                                elif any(verdict == 'suspicious' for verdict in qr_verdicts):
+                                    suspicious_qr.append(att)
+                                else:
+                                    unchecked_qr.append(att)
+                    
+                    if malicious_qr:
+                        findings['critical_threats'].extend([
+                            f"Malicious QR code: {att.get('filename', 'unknown')}" for att in malicious_qr
+                        ])
+                    if suspicious_qr:
+                        findings['high_risks'].extend([
+                            f"Suspicious QR code: {att.get('filename', 'unknown')}" for att in suspicious_qr
+                        ])
+                    if unchecked_qr:
+                        findings['high_risks'].extend([
+                            f"Unchecked QR code: {att.get('filename', 'unknown')}" for att in unchecked_qr
+                        ])
+                
+                # Unchecked files (potential risk)
+                if unchecked_files:
+                    findings['warning_factors'].extend([
+                        f"Unchecked file: {att.get('filename', 'unknown')}" for att in unchecked_files
+                    ])
+                
+                # Attachment content analysis findings
+                for att in valid_attachments:
+                    try:
+                        content_analysis = att.get('attachment_content_analysis', {})
+                        if content_analysis and isinstance(content_analysis, dict) and content_analysis.get('findings'):
+                            att_findings = content_analysis['findings']
+                            if isinstance(att_findings, dict):  # ADDED: Type validation
+                                high_risk_att_categories = [
+                                    f['name'] for f in att_findings.values() 
+                                    if isinstance(f, dict) and f.get('risk_level') == 'HIGH'
+                                ]
+                                if high_risk_att_categories:
+                                    findings['high_risks'].append(
+                                        f"Attachment phishing content ({att.get('filename', 'unknown')}): {', '.join(high_risk_att_categories)}"
+                                    )
+                        
+                        # Attachment URL analysis
+                        if content_analysis and isinstance(content_analysis, dict):
+                            att_url_analysis = content_analysis.get('url_analysis', {})
+                            if att_url_analysis and isinstance(att_url_analysis, dict) and att_url_analysis.get('results'):
+                                url_results_list = att_url_analysis['results']
+                                if isinstance(url_results_list, list):  # ADDED: Type validation
+                                    for url_result in url_results_list:
+                                        if isinstance(url_result, dict):  # ADDED: Type validation
+                                            verdict = url_result.get('verdict', 'unchecked')
+                                            domain = url_result.get('domain', 'unknown')
+                                            
+                                            if verdict == 'malicious':
+                                                findings['malicious_indicators'].append(
+                                                    f"Malicious domain in attachment: {apply_defanging(domain)}"
+                                                )
+                                                findings['total_iocs'] += 1
+                                            elif verdict == 'suspicious':
+                                                findings['suspicious_indicators'].append(
+                                                    f"Suspicious domain in attachment: {apply_defanging(domain)}"
+                                                )
+                                            elif verdict == 'unchecked':
+                                                findings['warning_factors'].append(
+                                                    f"Unchecked domain in attachment: {apply_defanging(domain)}"
+                                                )
+                    except Exception as e:
+                        print(f"Warning: Error processing attachment content analysis: {e}")
+                        continue
+        except Exception as e:
+            print(f"Warning: Error processing attachment analysis: {e}")
     
     return findings
 

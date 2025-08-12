@@ -1103,7 +1103,7 @@ def compile_summary_findings():
     
     # URL Analysis - Include ALL non-benign URLs
     if url_results:
-        for result in last_url_analysis_results:
+        for result in url_results: 
             domain = result['domain']
             verdict = result['verdict']
             url_count = result.get('url_count', len(result.get('urls', [])))

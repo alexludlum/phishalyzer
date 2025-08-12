@@ -1124,8 +1124,8 @@ def compile_summary_findings():
     
     # Body Analysis - Include ALL phishing content found
     if body_results:
-        body_findings = last_body_analysis_results.get('findings', {})
-        risk_score = last_body_analysis_results.get('risk_score', 0)
+        body_findings = body_results.get('findings', {})
+        risk_score = body_results.get('risk_score', 0)
         
         if body_findings:
             high_risk_categories = [f['name'] for f in body_findings.values() if f['risk_level'] == 'HIGH']
@@ -1141,13 +1141,13 @@ def compile_summary_findings():
     
     # Attachment Analysis - Include ALL potential threats
     if attachment_results:
-        critical_attachments = [a for a in last_attachment_results if a.get('threat_level') == 'critical']
-        malicious_files = [a for a in last_attachment_results if a.get('vt_verdict') == 'malicious']
-        suspicious_files = [a for a in last_attachment_results if a.get('vt_verdict') == 'suspicious']
-        high_risk_spoofed = [a for a in last_attachment_results if a.get('threat_level') == 'high' and a.get('is_spoofed')]
-        medium_risk_spoofed = [a for a in last_attachment_results if a.get('threat_level') == 'medium' and a.get('is_spoofed')]
-        qr_files = [a for a in last_attachment_results if a.get('qr_analysis', {}).get('qr_found')]
-        unchecked_files = [a for a in last_attachment_results if a.get('vt_verdict') == 'unknown']
+        critical_attachments = [a for a in attachment_results if a.get('threat_level') == 'critical']
+        malicious_files = [a for a in attachment_results if a.get('vt_verdict') == 'malicious']
+        suspicious_files = [a for a in attachment_results if a.get('vt_verdict') == 'suspicious']
+        high_risk_spoofed = [a for a in attachment_results if a.get('threat_level') == 'high' and a.get('is_spoofed')]
+        medium_risk_spoofed = [a for a in attachment_results if a.get('threat_level') == 'medium' and a.get('is_spoofed')]
+        qr_files = [a for a in attachment_results if a.get('qr_analysis', {}).get('qr_found')]
+        unchecked_files = [a for a in attachment_results if a.get('vt_verdict') == 'unknown']
         
         # Critical threats (spoofed executables, etc.)
         if critical_attachments:
@@ -1220,7 +1220,7 @@ def compile_summary_findings():
             ])
         
         # Attachment content analysis findings
-        for att in last_attachment_results:
+        for att in attachment_results:
             content_analysis = att.get('attachment_content_analysis', {})
             if content_analysis.get('findings'):
                 att_findings = content_analysis['findings']

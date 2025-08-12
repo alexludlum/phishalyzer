@@ -1140,14 +1140,18 @@ def compile_summary_findings():
                 findings['warning_factors'].append(f"Low-risk phishing patterns: {', '.join(low_risk_categories)}")
     
     # Attachment Analysis - Include ALL potential threats
+    # FIXED: Add None checking for attachment results
     if attachment_results:
-        critical_attachments = [a for a in attachment_results if a.get('threat_level') == 'critical']
-        malicious_files = [a for a in attachment_results if a.get('vt_verdict') == 'malicious']
-        suspicious_files = [a for a in attachment_results if a.get('vt_verdict') == 'suspicious']
-        high_risk_spoofed = [a for a in attachment_results if a.get('threat_level') == 'high' and a.get('is_spoofed')]
-        medium_risk_spoofed = [a for a in attachment_results if a.get('threat_level') == 'medium' and a.get('is_spoofed')]
-        qr_files = [a for a in attachment_results if a.get('qr_analysis', {}).get('qr_found')]
-        unchecked_files = [a for a in attachment_results if a.get('vt_verdict') == 'unknown']
+        # Filter out None values from attachment_results
+        valid_attachments = [att for att in attachment_results if att is not None and isinstance(att, dict)]
+        
+        critical_attachments = [a for a in valid_attachments if a.get('threat_level') == 'critical']
+        malicious_files = [a for a in valid_attachments if a.get('vt_verdict') == 'malicious']
+        suspicious_files = [a for a in valid_attachments if a.get('vt_verdict') == 'suspicious']
+        high_risk_spoofed = [a for a in valid_attachments if a.get('threat_level') == 'high' and a.get('is_spoofed')]
+        medium_risk_spoofed = [a for a in valid_attachments if a.get('threat_level') == 'medium' and a.get('is_spoofed')]
+        qr_files = [a for a in valid_attachments if a.get('qr_analysis', {}).get('qr_found')]
+        unchecked_files = [a for a in valid_attachments if a.get('vt_verdict') == 'unknown']
         
         # Critical threats (spoofed executables, etc.)
         if critical_attachments:
@@ -1220,9 +1224,7 @@ def compile_summary_findings():
             ])
         
         # Attachment content analysis findings
-        for att in attachment_results:
-            if att is None or not isinstance(att, dict):  # Skip None or invalid attachments
-                continue
+        for att in valid_attachments:  # Use valid_attachments instead of attachment_results
             content_analysis = att.get('attachment_content_analysis', {})
             if content_analysis and content_analysis.get('findings'):  # Also check content_analysis isn't None
                 att_findings = content_analysis['findings']

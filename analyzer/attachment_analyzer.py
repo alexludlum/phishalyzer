@@ -408,11 +408,6 @@ def analyze_file_by_content(attachment_data, api_key):
                         results['threat_level'] = 'high'
                         results['content_analysis'] = "HIGH RISK: Image with suspicious QR codes detected"
                     else:
-                        if COMPATIBLE_OUTPUT:
-                            print_status(f"INFO: Image contains QR codes - verify destinations", "warning")
-                        else:
-                            print(f"INFO: Image contains QR codes - verify destinations")
-                        
                         results['threat_level'] = 'high'  # Any QR code is high risk
                         results['content_analysis'] = "HIGH RISK: Image contains QR codes"
                 
@@ -1153,18 +1148,6 @@ def analyze_attachments(msg_obj, api_key):
                                 print(f"  SPOOFING ALERT: {escaped_spoof}")
                         print()
                     
-                    # Content analysis results (existing - for spoofing/type mismatch)
-                    if result.get('content_analysis'):
-                        escaped_analysis = output.escape(result.get('content_analysis')) if COMPATIBLE_OUTPUT else result.get('content_analysis')
-                        if COMPATIBLE_OUTPUT:
-                            if "CRITICAL" in result.get('content_analysis'):
-                                output.print(f"  [red bold]Content Analysis: {escaped_analysis}[/red bold]")
-                            else:
-                                output.print(f"  [yellow]Content Analysis: {escaped_analysis}[/yellow]")
-                        else:
-                            print(f"  Content Analysis: {escaped_analysis}")
-                        print()
-                    
                     # QR Code analysis (if applicable)
                     if result.get('qr_analysis'):
                         try:
@@ -1182,18 +1165,18 @@ def analyze_attachments(msg_obj, api_key):
                     final_risk_level = result.get('final_risk_level', 'unknown')
                     
                     # Get QR code risks
+                    qr_status = ""
                     if result.get('qr_analysis') and result.get('qr_analysis', {}).get('qr_found'):
                         qr_results = result.get('qr_analysis', {}).get('qr_results', [])
                         malicious_qr = any(qr.get('verdict') == 'malicious' for qr in qr_results if isinstance(qr, dict))
                         suspicious_qr = any(qr.get('verdict') == 'suspicious' for qr in qr_results if isinstance(qr, dict))
                         
-                        qr_count = len(qr_results)
                         if malicious_qr:
-                            risk_factors.append(f"MALICIOUS QR code{'s' if qr_count != 1 else ''}")
+                            qr_status = " (Malicious QR code detected)"
                         elif suspicious_qr:
-                            risk_factors.append(f"Suspicious QR code{'s' if qr_count != 1 else ''}")
+                            qr_status = " (Suspicious QR code detected)"
                         else:
-                            risk_factors.append(f"QR code{'s' if qr_count != 1 else ''} detected")
+                            qr_status = " (QR code detected)"
                     
                     # Get content analysis risks
                     if result.get('attachment_content_analysis') and CONTENT_ANALYSIS_AVAILABLE:
@@ -1218,8 +1201,9 @@ def analyze_attachments(msg_obj, api_key):
                     
                     # Get other risks from final_risk_reason
                     final_risk_reason = result.get('final_risk_reason', '')
-                    if final_risk_reason and not any(factor in final_risk_reason for factor in ['QR code', 'PHISHING CONTENT', 'EXTENSION SPOOFING', 'CRITICAL SPOOFING', 'HIGH RISK SPOOFING']):
-                        risk_factors.append(final_risk_reason)
+                    if final_risk_reason and not any(factor in final_risk_reason for factor in ['QR code', 'EXTENSION SPOOFING', 'CRITICAL SPOOFING', 'HIGH RISK SPOOFING']):
+                        if not qr_status and not result.get('is_spoofed'):  # Only show if not already covered
+                            risk_factors.append(final_risk_reason)
                     
                     # Display consolidated risk assessment with enhanced colors
                     if COMPATIBLE_OUTPUT:
@@ -1240,9 +1224,9 @@ def analyze_attachments(msg_obj, api_key):
                         risk_color = "orange3"
                     
                     if COMPATIBLE_OUTPUT:
-                        output.print(f"- [{risk_color}]{final_risk_level.upper()}[/{risk_color}]")
+                        output.print(f"- [{risk_color}]{final_risk_level.upper()}{qr_status}[/{risk_color}]")
                     else:
-                        print(f"- {final_risk_level.upper()}")
+                        print(f"- {final_risk_level.upper()}{qr_status}")
                     
                     # Show specific risk factors with enhanced coloring
                     for factor in risk_factors:

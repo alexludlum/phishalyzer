@@ -1054,7 +1054,10 @@ def compile_summary_findings():
         'warning_factors': [],
         'total_iocs': 0
     }
-    
+    url_results = last_url_analysis_results if last_url_analysis_results is not None else []
+    body_results = last_body_analysis_results if last_body_analysis_results is not None else {}
+    attachment_results = last_attachment_results if last_attachment_results is not None else []
+
     # Header Analysis - FALLBACK for when header_analyzer doesn't return structured data
     # This ensures we still capture authentication issues shown in your example
     try:
@@ -1099,7 +1102,7 @@ def compile_summary_findings():
         pass
     
     # URL Analysis - Include ALL non-benign URLs
-    if last_url_analysis_results:
+    if url_results:
         for result in last_url_analysis_results:
             domain = result['domain']
             verdict = result['verdict']
@@ -1120,7 +1123,7 @@ def compile_summary_findings():
                 )
     
     # Body Analysis - Include ALL phishing content found
-    if last_body_analysis_results:
+    if body_results:
         body_findings = last_body_analysis_results.get('findings', {})
         risk_score = last_body_analysis_results.get('risk_score', 0)
         
@@ -1137,7 +1140,7 @@ def compile_summary_findings():
                 findings['warning_factors'].append(f"Low-risk phishing patterns: {', '.join(low_risk_categories)}")
     
     # Attachment Analysis - Include ALL potential threats
-    if last_attachment_results:
+    if attachment_results:
         critical_attachments = [a for a in last_attachment_results if a.get('threat_level') == 'critical']
         malicious_files = [a for a in last_attachment_results if a.get('vt_verdict') == 'malicious']
         suspicious_files = [a for a in last_attachment_results if a.get('vt_verdict') == 'suspicious']

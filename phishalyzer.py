@@ -1221,13 +1221,15 @@ def compile_summary_findings():
         
         # Attachment content analysis findings
         for att in attachment_results:
+            if att is None or not isinstance(att, dict):  # Skip None or invalid attachments
+                continue
             content_analysis = att.get('attachment_content_analysis', {})
-            if content_analysis.get('findings'):
+            if content_analysis and content_analysis.get('findings'):  # Also check content_analysis isn't None
                 att_findings = content_analysis['findings']
-                high_risk_att_categories = [f['name'] for f in att_findings.values() if f['risk_level'] == 'HIGH']
+                high_risk_att_categories = [f['name'] for f in att_findings.values() if f.get('risk_level') == 'HIGH']
                 if high_risk_att_categories:
                     findings['high_risks'].append(
-                        f"Attachment phishing content ({att['filename']}): {', '.join(high_risk_att_categories)}"
+                        f"Attachment phishing content ({att.get('filename', 'unknown')}): {', '.join(high_risk_att_categories)}"
                     )
             
             # Attachment URL analysis

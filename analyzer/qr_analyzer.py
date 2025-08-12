@@ -83,25 +83,42 @@ def extract_images_from_pdf(pdf_content):
             print(f"Error extracting images from PDF: {e}")
         return []
 
+# Replace the detect_qr_codes_in_image function in qr_analyzer.py with this improved version:
+
 def detect_qr_codes_in_image(pil_image):
-    """Detect and decode QR codes in a PIL Image using OpenCV."""
+    """Detect and decode QR codes in a PIL Image using OpenCV with improved error handling."""
     if not QR_LIBRARIES_AVAILABLE:
         return []
     
     try:
-        # Convert PIL image to OpenCV format
+        # Convert PIL image to OpenCV format with better channel handling
         if pil_image.mode == 'RGBA':
+            pil_image = pil_image.convert('RGB')
+        elif pil_image.mode == 'L':  # Grayscale
+            pil_image = pil_image.convert('RGB')  # Convert to RGB first
+        elif pil_image.mode == 'P':  # Palette mode
             pil_image = pil_image.convert('RGB')
         
         # Convert to numpy array
         opencv_image = np.array(pil_image)
         
-        # Convert RGB to BGR (OpenCV uses BGR)
-        if len(opencv_image.shape) == 3:
-            opencv_image = cv2.cvtColor(opencv_image, cv2.COLOR_RGB2BGR)
+        # Ensure we have the right number of channels
+        if len(opencv_image.shape) == 2:
+            # Single channel (grayscale) - convert to 3-channel
+            opencv_image = cv2.cvtColor(opencv_image, cv2.COLOR_GRAY2BGR)
+        elif len(opencv_image.shape) == 3:
+            if opencv_image.shape[2] == 3:
+                # RGB to BGR conversion
+                opencv_image = cv2.cvtColor(opencv_image, cv2.COLOR_RGB2BGR)
+            elif opencv_image.shape[2] == 4:
+                # RGBA to BGR conversion
+                opencv_image = cv2.cvtColor(opencv_image, cv2.COLOR_RGBA2BGR)
         
         # Convert to grayscale for QR detection
-        gray = cv2.cvtColor(opencv_image, cv2.COLOR_BGR2GRAY)
+        if len(opencv_image.shape) == 3:
+            gray = cv2.cvtColor(opencv_image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = opencv_image  # Already grayscale
         
         # Initialize QR code detector
         qr_detector = cv2.QRCodeDetector()
@@ -121,11 +138,17 @@ def detect_qr_codes_in_image(pil_image):
         
         return results
     
+    except cv2.error as e:
+        if COMPATIBLE_OUTPUT:
+            print_status(f"OpenCV error detecting QR codes: {e}", "error")
+        else:
+            print(f"OpenCV error detecting QR codes: {e}")
+        return []
     except Exception as e:
         if COMPATIBLE_OUTPUT:
-            print_status(f"Error detecting QR codes with OpenCV: {e}", "error")
+            print_status(f"Error detecting QR codes: {e}", "error")
         else:
-            print(f"Error detecting QR codes with OpenCV: {e}")
+            print(f"Error detecting QR codes: {e}")
         return []
 
 def check_url_virustotal_qr(url, api_key, cache):

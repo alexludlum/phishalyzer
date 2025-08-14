@@ -863,8 +863,6 @@ SHA256: {file_hash}
         
         # Add detailed received hops if available (without the header)
         if received_hops:
-            html_content += '\n\n'  # Just add spacing
-            
             for hop in received_hops:
                 index = hop.get('index', '?')
                 content = hop.get('content', 'No content')

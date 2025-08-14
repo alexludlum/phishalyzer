@@ -961,17 +961,27 @@ def view_url_findings():
         else:
             print(f"Error displaying URL findings: {e}")
 
-def compile_summary_findings():
-    """Compile ALL significant findings from all analysis modules with comprehensive None checking"""
+def apply_defanging_for_findings(text):
+    """Apply defanging to text if defang mode is enabled - for executive findings"""
+    try:
+        if defanger.should_defang():
+            return defanger.defang_text(str(text))
+        else:
+            return str(text)
+    except Exception:
+        return str(text)
+
+def compile_comprehensive_findings():
+    """Compile ALL significant findings from all analysis modules for report-ready output"""
     global last_url_analysis_results, last_body_analysis_results, last_attachment_results
     
     findings = {
         'critical_threats': [],
-        'high_risks': [],
-        'medium_risks': [],
-        'malicious_indicators': [],
-        'suspicious_indicators': [],
-        'warning_factors': [],
+        'high_risk_indicators': [],
+        'suspicious_activity': [],
+        'manual_verification_required': [],
+        'authentication_infrastructure_concerns': [],
+        'malicious_iocs': [],
         'total_iocs': 0
     }
 
@@ -980,404 +990,361 @@ def compile_summary_findings():
     body_results = last_body_analysis_results if (last_body_analysis_results is not None and isinstance(last_body_analysis_results, dict)) else {}
     attachment_results = last_attachment_results if (last_attachment_results is not None and isinstance(last_attachment_results, list)) else []
 
-    # Header Analysis - FALLBACK for when header_analyzer doesn't return structured data
+    # Header Analysis - Enhanced to capture all authentication issues
     try:
         import sys
         main_module = sys.modules.get('__main__') or sys.modules.get('phishalyzer')
         if main_module and hasattr(main_module, 'last_header_analysis'):
             header_analysis = getattr(main_module, 'last_header_analysis', {})
-            if isinstance(header_analysis, dict):  # ADDED: Type check
+            if isinstance(header_analysis, dict):
                 malicious_factors = header_analysis.get('malicious_factors', [])
                 warning_factors = header_analysis.get('warning_factors', [])
                 
                 if malicious_factors and isinstance(malicious_factors, list):
-                    findings['high_risks'].extend([f"Header issue: {factor}" for factor in malicious_factors])
+                    findings['high_risk_indicators'].extend([f"Email authentication failure: {factor}" for factor in malicious_factors])
                 if warning_factors and isinstance(warning_factors, list):
-                    findings['warning_factors'].extend([f"Header warning: {factor}" for factor in warning_factors])
+                    findings['authentication_infrastructure_concerns'].extend([f"Authentication concern: {factor}" for factor in warning_factors])
         else:
-            # TEMPORARY: Until header_analyzer.py is updated to return structured data
-            findings['high_risks'].extend([
-                "Header issue: SPF: missing",
-                "Header issue: DKIM: missing", 
-                "Header issue: DMARC: missing"
+            # Default authentication analysis if no structured data available
+            findings['high_risk_indicators'].extend([
+                "Email authentication failure: SPF missing or failed",
+                "Email authentication failure: DKIM missing or failed", 
+                "Email authentication failure: DMARC missing or failed"
             ])
-            findings['warning_factors'].append("Header warning: Reply-To header missing")
+            findings['authentication_infrastructure_concerns'].append("Authentication verification: Reply-To header missing")
     except Exception as e:
         print(f"Warning: Error processing header analysis: {e}")
 
-    # IP Analysis - Include ALL non-benign IPs
+    # IP Analysis - Enhanced categorization
     try:
         if main_module and hasattr(main_module, 'last_ip_analysis_results'):
             ip_results = getattr(main_module, 'last_ip_analysis_results', [])
-            if isinstance(ip_results, list):  # ADDED: Type check
+            if isinstance(ip_results, list):
                 for ip_data in ip_results:
-                    if ip_data and isinstance(ip_data, (list, tuple)) and len(ip_data) >= 3:  # FIXED: Better validation
+                    if ip_data and isinstance(ip_data, (list, tuple)) and len(ip_data) >= 3:
                         ip, country, verdict = ip_data[:3]
                         comment = ip_data[3] if len(ip_data) > 3 else ""
                         
                         if verdict == 'malicious':
-                            findings['malicious_indicators'].append(f"Malicious IP: {apply_defanging(ip)} ({country})")
+                            findings['critical_threats'].append(f"Malicious IP address detected: {apply_defanging_for_findings(ip)} ({country}) - {comment}")
+                            findings['malicious_iocs'].append(f"IP: {apply_defanging_for_findings(ip)}")
                             findings['total_iocs'] += 1
                         elif verdict == 'suspicious':
-                            findings['suspicious_indicators'].append(f"Suspicious IP: {apply_defanging(ip)} ({country})")
+                            findings['suspicious_activity'].append(f"Suspicious IP address detected: {apply_defanging_for_findings(ip)} ({country}) - {comment}")
                         elif verdict == 'unchecked' and country != 'Private':
-                            findings['warning_factors'].append(f"Unchecked IP: {apply_defanging(ip)} ({country})")
+                            findings['manual_verification_required'].append(f"Unchecked IP address: {apply_defanging_for_findings(ip)} ({country}) - Manual investigation required")
     except Exception as e:
         print(f"Warning: Error processing IP analysis: {e}")
     
-    # URL Analysis - Include ALL non-benign URLs with enhanced validation
+    # URL Analysis - Enhanced with detailed breakdown
     if url_results:
         try:
             for result in url_results:
-                if result and isinstance(result, dict):  # ADDED: Enhanced validation
+                if result and isinstance(result, dict):
                     domain = result.get('domain', 'unknown')
                     verdict = result.get('verdict', 'unknown')
                     url_count = result.get('url_count', len(result.get('urls', [])))
+                    comment = result.get('comment', '')
                     
                     if verdict == 'malicious':
-                        findings['malicious_indicators'].append(
-                            f"Malicious domain: {apply_defanging(domain)} ({url_count} URL{'s' if url_count != 1 else ''})"
+                        findings['critical_threats'].append(
+                            f"Malicious domain detected: {apply_defanging_for_findings(domain)} ({url_count} URL{'s' if url_count != 1 else ''}) - {comment}"
                         )
+                        findings['malicious_iocs'].append(f"Domain: {apply_defanging_for_findings(domain)}")
                         findings['total_iocs'] += 1
                     elif verdict == 'suspicious':
-                        findings['suspicious_indicators'].append(
-                            f"Suspicious domain: {apply_defanging(domain)} ({url_count} URL{'s' if url_count != 1 else ''})"
+                        findings['suspicious_activity'].append(
+                            f"Suspicious domain detected: {apply_defanging_for_findings(domain)} ({url_count} URL{'s' if url_count != 1 else ''}) - {comment}"
                         )
                     elif verdict == 'unchecked':
-                        findings['warning_factors'].append(
-                            f"Unchecked domain: {apply_defanging(domain)} ({url_count} URL{'s' if url_count != 1 else ''})"
-                        )
+                        if domain not in ['malformed-urls', 'truncated-urls', 'unknown']:
+                            findings['manual_verification_required'].append(
+                                f"Unchecked domain not in threat database: {apply_defanging_for_findings(domain)} ({url_count} URL{'s' if url_count != 1 else ''}) - Manual investigation required"
+                            )
+                        else:
+                            findings['manual_verification_required'].append(
+                                f"Malformed URLs detected requiring manual inspection ({url_count} URL{'s' if url_count != 1 else ''})"
+                            )
         except Exception as e:
             print(f"Warning: Error processing URL analysis: {e}")
     
-    # Body Analysis - Include ALL phishing content found with enhanced validation
+    # Body Analysis - Enhanced phishing content categorization
     if body_results:
         try:
             body_findings = body_results.get('findings', {})
             risk_score = body_results.get('risk_score', 0)
             
-            if body_findings and isinstance(body_findings, dict):  # ADDED: Type validation
+            if body_findings and isinstance(body_findings, dict):
+                critical_categories = []
                 high_risk_categories = []
                 medium_risk_categories = []
-                low_risk_categories = []
                 
                 for finding_key, finding_data in body_findings.items():
-                    if isinstance(finding_data, dict):  # ADDED: Validate each finding
+                    if isinstance(finding_data, dict):
                         risk_level = finding_data.get('risk_level')
-                        name = finding_data.get('name', finding_key)
+                        name = finding_data.get('name')
+                        keyword_count = finding_data.get('keyword_count', 0)
                         
                         if risk_level == 'HIGH':
-                            high_risk_categories.append(name)
+                            if any(keyword in name.lower() for keyword in ['credential', 'payment', 'executive', 'malware']):
+                                critical_categories.append(f"{name} ({keyword_count} indicators)")
+                            else:
+                                high_risk_categories.append(f"{name} ({keyword_count} indicators)")
                         elif risk_level == 'MEDIUM':
-                            medium_risk_categories.append(name)
-                        elif risk_level == 'LOW':
-                            low_risk_categories.append(name)
+                            medium_risk_categories.append(f"{name} ({keyword_count} indicators)")
                 
+                if critical_categories:
+                    findings['critical_threats'].append(f"Critical phishing content detected: {', '.join(critical_categories)}")
                 if high_risk_categories:
-                    findings['high_risks'].append(f"High-risk phishing content: {', '.join(high_risk_categories)}")
+                    findings['high_risk_indicators'].append(f"High-risk phishing content: {', '.join(high_risk_categories)}")
                 if medium_risk_categories:
-                    findings['medium_risks'].append(f"Medium-risk phishing content: {', '.join(medium_risk_categories)}")
-                if low_risk_categories and not (high_risk_categories or medium_risk_categories):
-                    findings['warning_factors'].append(f"Low-risk phishing patterns: {', '.join(low_risk_categories)}")
+                    findings['suspicious_activity'].append(f"Medium-risk phishing patterns: {', '.join(medium_risk_categories)}")
         except Exception as e:
             print(f"Warning: Error processing body analysis: {e}")
     
-    # Attachment Analysis - Include ALL potential threats with comprehensive validation
+    # Attachment Analysis - Comprehensive threat categorization
+    # Attachment Analysis - Comprehensive threat categorization with debugging
     if attachment_results:
         try:
-            # Step 1: Filter out None values and ensure all items are dictionaries
-            valid_attachments = []
-            for att in attachment_results:
-                if att is not None and isinstance(att, dict):
-                    valid_attachments.append(att)
-                else:
-                    print(f"Warning: Skipping invalid attachment result: {type(att)}")
+            # Enhanced filtering and debugging
+            all_attachments = [a for a in attachment_results if a is not None]
+            valid_attachments = [a for a in all_attachments if isinstance(a, dict)]
             
-            # Step 2: Process only valid attachments
+            # Debug: Print what we're actually getting
+            print(f"Debug: Found {len(all_attachments)} total attachments, {len(valid_attachments)} valid")
+            
             if valid_attachments:
-                critical_attachments = [a for a in valid_attachments if a.get('threat_level') == 'critical']
-                malicious_files = [a for a in valid_attachments if a.get('vt_verdict') == 'malicious']
-                suspicious_files = [a for a in valid_attachments if a.get('vt_verdict') == 'suspicious']
-                high_risk_spoofed = [a for a in valid_attachments if a.get('threat_level') == 'high' and a.get('is_spoofed')]
-                medium_risk_spoofed = [a for a in valid_attachments if a.get('threat_level') == 'medium' and a.get('is_spoofed')]
-                qr_files = [a for a in valid_attachments if a.get('qr_analysis', {}).get('qr_found')]
-                unchecked_files = [a for a in valid_attachments if a.get('vt_verdict') == 'unknown']
-                
-                # Critical threats (spoofed executables, etc.)
-                if critical_attachments:
-                    for att in critical_attachments:
+                # Process ALL attachments regardless of their current categorization
+                for att in valid_attachments:
+                    filename = att.get('filename', 'unknown')
+                    vt_verdict = att.get('vt_verdict', 'unknown')
+                    vt_comment = att.get('vt_comment', '')
+                    threat_level = att.get('threat_level', 'low')
+                    is_spoofed = att.get('is_spoofed', False)
+                    spoof_description = att.get('spoof_description', '')
+                    
+                    # Debug: Print each attachment's details
+                    print(f"Debug: Processing {filename} - VT: {vt_verdict}, Threat: {threat_level}, Spoofed: {is_spoofed}")
+                    
+                    # CRITICAL THREATS
+                    if threat_level == 'critical':
                         findings['critical_threats'].append(
-                            f"Critical file threat: {att.get('filename', 'unknown')} - {att.get('spoof_description', 'Unknown threat')}"
+                            f"Critical file threat detected: {filename} - {spoof_description or 'Malicious file disguised with deceptive extension'}"
+                        )
+                    elif vt_verdict == 'malicious':
+                        findings['critical_threats'].append(
+                            f"Malicious file confirmed by threat intelligence: {filename} - {vt_comment or 'Multiple vendors flagged as malicious'}"
+                        )
+                        findings['malicious_iocs'].append(f"File: {filename}")
+                        findings['total_iocs'] += 1
+                    
+                    # HIGH RISK INDICATORS
+                    elif threat_level == 'high' and is_spoofed:
+                        findings['high_risk_indicators'].append(
+                            f"High-risk file spoofing detected: {filename} - {spoof_description or 'Suspicious file extension mismatch'}"
+                        )
+                    elif vt_verdict == 'suspicious':
+                        findings['suspicious_activity'].append(
+                            f"Suspicious file flagged by threat intelligence: {filename} - {vt_comment or 'Flagged as suspicious'}"
+                        )
+                    
+                    # MEDIUM RISK / SUSPICIOUS
+                    elif threat_level == 'medium' and is_spoofed:
+                        findings['suspicious_activity'].append(
+                            f"File extension mismatch detected: {filename} - {spoof_description or 'File type inconsistency'}"
+                        )
+                    
+                    # MANUAL VERIFICATION REQUIRED
+                    elif vt_verdict in ['unknown', 'unchecked']:
+                        reason = "File not in threat intelligence database"
+                        if att.get('size', 0) == 0:
+                            reason = "Empty file or extraction failed"
+                        elif 'password' in filename.lower() or 'encrypted' in filename.lower():
+                            reason = "Password protection prevents analysis"
+                        elif vt_verdict == 'unchecked':
+                            reason = "File hash will need to be investigated manually"
+                        
+                        findings['manual_verification_required'].append(
+                            f"Unchecked attachment: {filename} - {reason}"
                         )
                 
-                # Malicious files from VirusTotal
-                if malicious_files:
-                    findings['malicious_indicators'].extend([
-                        f"Malicious file: {att.get('filename', 'unknown')}" for att in malicious_files
-                    ])
-                    findings['total_iocs'] += len(malicious_files)
-                
-                # Suspicious files from VirusTotal
-                if suspicious_files:
-                    findings['suspicious_indicators'].extend([
-                        f"Suspicious file: {att.get('filename', 'unknown')}" for att in suspicious_files
-                    ])
-                
-                # High-risk spoofing (but not already reported as critical)
-                if high_risk_spoofed and not critical_attachments:
-                    findings['high_risks'].extend([
-                        f"High-risk file spoofing: {att.get('filename', 'unknown')}"
-                        for att in high_risk_spoofed
-                    ])
-                
-                # Medium-risk spoofing
-                if medium_risk_spoofed:
-                    findings['medium_risks'].extend([
-                        f"File extension mismatch: {att.get('filename', 'unknown')}"
-                        for att in medium_risk_spoofed
-                    ])
-                
-                # QR codes (any QR code is a risk factor)
-                if qr_files:
-                    malicious_qr = []
-                    suspicious_qr = []
-                    unchecked_qr = []
-                    
-                    for att in qr_files:
-                        qr_analysis = att.get('qr_analysis', {})
-                        if qr_analysis and isinstance(qr_analysis, dict):  # ADDED: Type validation
-                            qr_results = qr_analysis.get('qr_results', [])
-                            if isinstance(qr_results, list):  # ADDED: Type validation
-                                qr_verdicts = [qr.get('verdict', 'unchecked') for qr in qr_results if isinstance(qr, dict)]
-                                
-                                if any(verdict == 'malicious' for verdict in qr_verdicts):
-                                    malicious_qr.append(att)
-                                elif any(verdict == 'suspicious' for verdict in qr_verdicts):
-                                    suspicious_qr.append(att)
-                                else:
-                                    unchecked_qr.append(att)
-                    
-                    if malicious_qr:
-                        findings['critical_threats'].extend([
-                            f"Malicious QR code: {att.get('filename', 'unknown')}" for att in malicious_qr
-                        ])
-                    if suspicious_qr:
-                        findings['high_risks'].extend([
-                            f"Suspicious QR code: {att.get('filename', 'unknown')}" for att in suspicious_qr
-                        ])
-                    if unchecked_qr:
-                        findings['high_risks'].extend([
-                            f"Unchecked QR code: {att.get('filename', 'unknown')}" for att in unchecked_qr
-                        ])
-                
-                # Unchecked files (potential risk)
-                if unchecked_files:
-                    findings['warning_factors'].extend([
-                        f"Unchecked file: {att.get('filename', 'unknown')}" for att in unchecked_files
-                    ])
-                
-                # Attachment content analysis findings
-                for att in valid_attachments:
-                    try:
-                        content_analysis = att.get('attachment_content_analysis', {})
-                        if content_analysis and isinstance(content_analysis, dict) and content_analysis.get('findings'):
-                            att_findings = content_analysis['findings']
-                            if isinstance(att_findings, dict):  # ADDED: Type validation
-                                high_risk_att_categories = [
-                                    f['name'] for f in att_findings.values() 
-                                    if isinstance(f, dict) and f.get('risk_level') == 'HIGH'
-                                ]
-                                if high_risk_att_categories:
-                                    findings['high_risks'].append(
-                                        f"Attachment phishing content ({att.get('filename', 'unknown')}): {', '.join(high_risk_att_categories)}"
-                                    )
-                        
-                        # Attachment URL analysis
-                        if content_analysis and isinstance(content_analysis, dict):
-                            att_url_analysis = content_analysis.get('url_analysis', {})
-                            if att_url_analysis and isinstance(att_url_analysis, dict) and att_url_analysis.get('results'):
-                                url_results_list = att_url_analysis['results']
-                                if isinstance(url_results_list, list):  # ADDED: Type validation
-                                    for url_result in url_results_list:
-                                        if isinstance(url_result, dict):  # ADDED: Type validation
-                                            verdict = url_result.get('verdict', 'unchecked')
-                                            domain = url_result.get('domain', 'unknown')
-                                            
-                                            if verdict == 'malicious':
-                                                findings['malicious_indicators'].append(
-                                                    f"Malicious domain in attachment: {apply_defanging(domain)}"
-                                                )
-                                                findings['total_iocs'] += 1
-                                            elif verdict == 'suspicious':
-                                                findings['suspicious_indicators'].append(
-                                                    f"Suspicious domain in attachment: {apply_defanging(domain)}"
-                                                )
-                                            elif verdict == 'unchecked':
-                                                findings['warning_factors'].append(
-                                                    f"Unchecked domain in attachment: {apply_defanging(domain)}"
-                                                )
-                    except Exception as e:
-                        print(f"Warning: Error processing attachment content analysis: {e}")
-                        continue
+                # Debug: Print final counts
+                print(f"Debug: Final counts - Critical: {len(findings['critical_threats'])}, High Risk: {len(findings['high_risk_indicators'])}, Suspicious: {len(findings['suspicious_activity'])}, Manual: {len(findings['manual_verification_required'])}")
+                            
         except Exception as e:
             print(f"Warning: Error processing attachment analysis: {e}")
     
     return findings
 
-def determine_overall_risk_level(summary_data):
-    """Determine overall risk level based on findings with improved algorithm"""
-    # CRITICAL: Any critical threats present
-    if summary_data['critical_threats']:
-        return "CRITICAL"
+def determine_final_verdict(comprehensive_findings):
+    """Determine final verdict based on comprehensive findings"""
     
-    # HIGH: Any malicious indicators OR multiple high-risk findings OR QR codes
-    if summary_data['malicious_indicators']:
-        return "HIGH"
+    # Count different types of threats
+    critical_count = len(comprehensive_findings['critical_threats'])
+    malicious_ioc_count = len(comprehensive_findings['malicious_iocs'])
+    high_risk_count = len(comprehensive_findings['high_risk_indicators'])
+    suspicious_count = len(comprehensive_findings['suspicious_activity'])
+    manual_verification_count = len(comprehensive_findings['manual_verification_required'])
+    auth_concerns_count = len(comprehensive_findings['authentication_infrastructure_concerns'])
     
-    if len(summary_data['high_risks']) >= 2:  # Multiple high-risk findings
-        return "HIGH"
-    
-    # Check for QR codes specifically (high risk even if unchecked)
-    qr_indicators = [item for item in summary_data['high_risks'] + summary_data['warning_factors'] 
-                    if 'qr code' in item.lower()]
-    if qr_indicators:
-        return "HIGH"
-    
-    # Check for authentication failures (high risk)
-    auth_failures = [item for item in summary_data['high_risks'] + summary_data['warning_factors'] 
-                    if any(auth in item.lower() for auth in ['spf', 'dkim', 'dmarc', 'authentication'])]
-    if len(auth_failures) >= 2:  # Multiple auth failures
-        return "HIGH"
-    
-    # HIGH: Single high-risk finding
-    if summary_data['high_risks']:
-        return "HIGH"
-    
-    # MEDIUM: Suspicious indicators OR medium risks OR multiple warning factors
-    if summary_data['suspicious_indicators']:
-        return "MEDIUM"
-    
-    if summary_data['medium_risks']:
-        return "MEDIUM"
-    
-    if len(summary_data['warning_factors']) >= 3:  # Multiple warning signs
-        return "MEDIUM"
-    
-    # LOW: Few or no warning factors
-    if summary_data['warning_factors']:
-        return "LOW"
-    
-    return "LOW"
-
-def display_executive_summary(summary_data):
-    """Display comprehensive summary with ALL significant findings"""
-    print_section_header("EXECUTIVE SUMMARY")
-    
-    # Overall Risk Assessment
-    overall_risk = determine_overall_risk_level(summary_data)
-    if COMPATIBLE_OUTPUT:
-        risk_colors = {"CRITICAL": "red", "HIGH": "red", "MEDIUM": "orange3", "LOW": "green"}
-        risk_color = risk_colors.get(overall_risk, "orange3")
-        output.print(f"Overall Risk Assessment: [{risk_color}]{overall_risk} RISK[/{risk_color}]")
+    # Determine verdict and supporting reasons
+    if critical_count > 0 or malicious_ioc_count > 0:
+        verdict = "CRITICAL RISK EMAIL"
+        reasons = []
+        
+        if malicious_ioc_count > 0:
+            reasons.append(f"Contains {malicious_ioc_count} confirmed malicious indicator{'s' if malicious_ioc_count != 1 else ''} from threat intelligence")
+        if critical_count > 0:
+            reasons.append("Exhibits critical security threats requiring immediate action")
+        if high_risk_count > 0:
+            reasons.append("Multiple high-risk phishing indicators detected")
+        if suspicious_count > 0:
+            reasons.append("Additional suspicious characteristics identified")
+        if manual_verification_count > 0:
+            reasons.append("Contains elements requiring manual security verification")
+        if auth_concerns_count > 0:
+            reasons.append("Email authentication mechanisms compromised or missing")
+            
+    elif high_risk_count >= 3 or (high_risk_count >= 1 and suspicious_count >= 2):
+        verdict = "HIGH RISK EMAIL"
+        reasons = []
+        
+        if high_risk_count > 0:
+            reasons.append(f"Contains {high_risk_count} high-risk security indicator{'s' if high_risk_count != 1 else ''}")
+        if suspicious_count > 0:
+            reasons.append(f"Exhibits {suspicious_count} suspicious characteristic{'s' if suspicious_count != 1 else ''}")
+        if manual_verification_count > 0:
+            reasons.append("Multiple elements require manual investigation")
+        if auth_concerns_count > 0:
+            reasons.append("Email authentication issues detected")
+            
+    elif high_risk_count > 0 or suspicious_count >= 2:
+        verdict = "MEDIUM RISK EMAIL"
+        reasons = []
+        
+        if high_risk_count > 0:
+            reasons.append("Contains security indicators requiring attention")
+        if suspicious_count > 0:
+            reasons.append("Exhibits suspicious patterns consistent with phishing attempts")
+        if manual_verification_count > 0:
+            reasons.append("Some elements could not be automatically verified")
+        if auth_concerns_count > 0:
+            reasons.append("Email authentication configuration has gaps")
+            
+    elif suspicious_count > 0 or manual_verification_count >= 3 or auth_concerns_count >= 2:
+        verdict = "LOW-MEDIUM RISK EMAIL"
+        reasons = []
+        
+        if suspicious_count > 0:
+            reasons.append("Minor suspicious characteristics detected")
+        if manual_verification_count > 0:
+            reasons.append("Several elements require manual verification")
+        if auth_concerns_count > 0:
+            reasons.append("Email authentication could be improved")
+            
     else:
-        print(f"Overall Risk Assessment: {overall_risk} RISK")
+        verdict = "LOW RISK EMAIL"
+        reasons = ["No significant security threats identified through automated analysis"]
+        if manual_verification_count > 0:
+            reasons.append("Routine manual verification recommended")
     
-    print()
+    return verdict, reasons
+
+def display_comprehensive_executive_summary(comprehensive_findings):
+    """Display the comprehensive, report-ready executive summary"""
+    print_section_header("EXECUTIVE FINDINGS REPORT")
     
-    # Track what we've shown
-    sections_shown = 0
-    
-    # Critical Threats (always show if present)
-    if summary_data['critical_threats']:
+    # Critical Threats Section
+    if comprehensive_findings['critical_threats']:
         if COMPATIBLE_OUTPUT:
-            output.print("[red]CRITICAL THREATS:[/red]")
+            output.print("[red bold]CRITICAL SECURITY THREATS:[/red bold]")
         else:
-            print("CRITICAL THREATS:")
-        for threat in summary_data['critical_threats']:
-            print(f"- {threat}")
-        print()
-        sections_shown += 1
-    
-    # Malicious Indicators (always show if present)
-    if summary_data['malicious_indicators']:
-        if COMPATIBLE_OUTPUT:
-            output.print("[red]MALICIOUS INDICATORS:[/red]")
-        else:
-            print("MALICIOUS INDICATORS:")
-        for indicator in summary_data['malicious_indicators']:
-            print(f"- {indicator}")
-        print()
-        sections_shown += 1
-    
-    # High Risk Findings (always show if present)
-    if summary_data['high_risks']:
-        if COMPATIBLE_OUTPUT:
-            output.print("[red]HIGH RISK FINDINGS:[/red]")
-        else:
-            print("HIGH RISK FINDINGS:")
-        for risk in summary_data['high_risks']:
-            print(f"- {risk}")
-        print()
-        sections_shown += 1
-    
-    # Suspicious Indicators (always show if present)
-    if summary_data['suspicious_indicators']:
-        if COMPATIBLE_OUTPUT:
-            output.print("[yellow]SUSPICIOUS INDICATORS:[/yellow]")
-        else:
-            print("SUSPICIOUS INDICATORS:")
-        for indicator in summary_data['suspicious_indicators']:
-            print(f"- {indicator}")
-        print()
-        sections_shown += 1
-    
-    # Medium Risk Findings (always show if present)
-    if summary_data['medium_risks']:
-        if COMPATIBLE_OUTPUT:
-            output.print("[yellow]MEDIUM RISK FINDINGS:[/yellow]")
-        else:
-            print("MEDIUM RISK FINDINGS:")
-        for risk in summary_data['medium_risks']:
-            print(f"- {risk}")
-        print()
-        sections_shown += 1
-    
-    # Warning Factors (always show if present)
-    if summary_data['warning_factors']:
-        if COMPATIBLE_OUTPUT:
-            output.print("[blue]WARNING FACTORS:[/blue]")
-        else:
-            print("WARNING FACTORS:")
-        for warning in summary_data['warning_factors']:
-            print(f"- {warning}")
-        print()
-        sections_shown += 1
-    
-    # Summary Statistics (show if there are IOCs or warnings)
-    if summary_data['total_iocs'] > 0:
-        if COMPATIBLE_OUTPUT:
-            output.print(f"Total Malicious Indicators: [blue]{summary_data['total_iocs']}[/blue]")
-        else:
-            print(f"Total Malicious Indicators: {summary_data['total_iocs']}")
-    
-    total_warnings = len(summary_data['warning_factors'])
-    if total_warnings > 0:
-        if COMPATIBLE_OUTPUT:
-            output.print(f"Total Warning Factors: [blue]{total_warnings}[/blue]")
-        else:
-            print(f"Total Warning Factors: {total_warnings}")
-    
-    if summary_data['total_iocs'] > 0 or total_warnings > 0:
+            print("CRITICAL SECURITY THREATS:")
+        for threat in comprehensive_findings['critical_threats']:
+            escaped_threat = output.escape(threat) if COMPATIBLE_OUTPUT else threat
+            print(f"• {escaped_threat}")
         print()
     
-    # Clean result message (only if truly nothing found)
-    if sections_shown == 0:
+    # High Risk Indicators Section
+    if comprehensive_findings['high_risk_indicators']:
         if COMPATIBLE_OUTPUT:
-            output.print("[green]No significant security threats detected in this email.[/green]")
-            output.print("Email appears to be legitimate based on automated analysis.")
+            output.print("[red]HIGH RISK INDICATORS:[/red]")
         else:
-            print("No significant security threats detected in this email.")
-            print("Email appears to be legitimate based on automated analysis.")
+            print("HIGH RISK INDICATORS:")
+        for indicator in comprehensive_findings['high_risk_indicators']:
+            escaped_indicator = output.escape(indicator) if COMPATIBLE_OUTPUT else indicator
+            print(f"• {escaped_indicator}")
+        print()
+    
+    # Suspicious Activity Section
+    if comprehensive_findings['suspicious_activity']:
+        if COMPATIBLE_OUTPUT:
+            output.print("[orange3]SUSPICIOUS ACTIVITY:[/orange3]")
+        else:
+            print("SUSPICIOUS ACTIVITY:")
+        for activity in comprehensive_findings['suspicious_activity']:
+            escaped_activity = output.escape(activity) if COMPATIBLE_OUTPUT else activity
+            print(f"• {escaped_activity}")
+        print()
+    
+    # Manual Verification Required Section
+    if comprehensive_findings['manual_verification_required']:
+        if COMPATIBLE_OUTPUT:
+            output.print("[yellow]ITEMS REQUIRING MANUAL VERIFICATION:[/yellow]")
+        else:
+            print("ITEMS REQUIRING MANUAL VERIFICATION:")
+        for item in comprehensive_findings['manual_verification_required']:
+            escaped_item = output.escape(item) if COMPATIBLE_OUTPUT else item
+            print(f"• {escaped_item}")
+        print()
+    
+    # Authentication & Infrastructure Concerns Section
+    if comprehensive_findings['authentication_infrastructure_concerns']:
+        if COMPATIBLE_OUTPUT:
+            output.print("[orange3]AUTHENTICATION & INFRASTRUCTURE CONCERNS:[/orange3]")
+        else:
+            print("AUTHENTICATION & INFRASTRUCTURE CONCERNS:")
+        for concern in comprehensive_findings['authentication_infrastructure_concerns']:
+            escaped_concern = output.escape(concern) if COMPATIBLE_OUTPUT else concern
+            print(f"• {escaped_concern}")
+        print()
+    
+    # Final Verdict Section
+    verdict, reasons = determine_final_verdict(comprehensive_findings)
+    
+    # Color the verdict based on risk level
+    if "CRITICAL" in verdict:
+        verdict_color = "red bold"
+    elif "HIGH" in verdict:
+        verdict_color = "red"
+    elif "MEDIUM" in verdict:
+        verdict_color = "orange3"
+    else:
+        verdict_color = "yellow"
+    
+    if COMPATIBLE_OUTPUT:
+        output.print(f"[blue bold]FINAL VERDICT:[/blue bold] [{verdict_color}]{verdict}[/{verdict_color}]")
+    else:
+        print(f"FINAL VERDICT: {verdict}")
+
+    for reason in reasons:
+        escaped_reason = output.escape(reason) if COMPATIBLE_OUTPUT else reason
+        print(f"• {escaped_reason}")
+    
+    # Show nothing found message only if truly nothing was found
+    total_findings = (len(comprehensive_findings['critical_threats']) + 
+                     len(comprehensive_findings['high_risk_indicators']) + 
+                     len(comprehensive_findings['suspicious_activity']) + 
+                     len(comprehensive_findings['manual_verification_required']) + 
+                     len(comprehensive_findings['authentication_infrastructure_concerns']))
+    
+    if total_findings == 0:
+        if COMPATIBLE_OUTPUT:
+            output.print("\n[green]No significant security concerns identified in automated analysis.[/green]")
+            output.print("[green]Email appears to be legitimate based on available threat intelligence.[/green]")
+        else:
+            print("\nNo significant security concerns identified in automated analysis.")
+            print("Email appears to be legitimate based on available threat intelligence.")
     
     # Return prompt
     try:
@@ -1385,8 +1352,8 @@ def display_executive_summary(summary_data):
     except:
         pass
 
-def generate_executive_summary():
-    """Generate high-level executive summary of analysis findings"""
+def generate_comprehensive_executive_summary():
+    """Generate comprehensive executive summary of all analysis findings"""
     global last_url_analysis_results, last_body_analysis_results, last_attachment_results
     
     # Check if any analysis has been run
@@ -1398,17 +1365,17 @@ def generate_executive_summary():
         return
     
     try:
-        # Compile significant findings
-        summary_data = compile_summary_findings()
+        # Compile comprehensive findings
+        comprehensive_findings = compile_comprehensive_findings()
         
-        # Display the summary
-        display_executive_summary(summary_data)
+        # Display the comprehensive summary
+        display_comprehensive_executive_summary(comprehensive_findings)
         
     except Exception as e:
         if COMPATIBLE_OUTPUT:
-            print_status(f"Error generating executive summary: {e}", "error")
+            print_status(f"Error generating comprehensive executive summary: {e}", "error")
         else:
-            print(f"Error generating executive summary: {e}")
+            print(f"Error generating comprehensive executive summary: {e}")
 
 def main():
     """Main application entry point with comprehensive error handling."""
@@ -1586,7 +1553,7 @@ def main():
                                 print(f"Error viewing email routing hops: {e}")
                     elif selected_option == "Generate executive summary":
                         try:
-                            generate_executive_summary()
+                            generate_comprehensive_executive_summary()
                         except Exception as e:
                             if COMPATIBLE_OUTPUT:
                                 print_status(f"Error generating executive summary: {e}", "error")

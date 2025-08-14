@@ -170,11 +170,26 @@ def apply_defanging_to_output(text, use_defanged):
             return match.group(0).replace('.', '[.]')
         result = re.sub(ipv4_pattern, defang_ipv4, result)
         
-        # IPv6 defanging (basic pattern)
-        ipv6_pattern = r'\b[0-9a-fA-F:]+::[0-9a-fA-F:]*\b|\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b'
+        # IPv6 defanging (enhanced pattern to capture complete addresses)
+        ipv6_patterns = [
+            # Link-local addresses with full format (fe80::xxxx:xxxx:xxxx:xxxx with optional zone)
+            r'\bfe80::[0-9a-fA-F]{1,4}:[0-9a-fA-F]{1,4}:[0-9a-fA-F]{1,4}:[0-9a-fA-F]{1,4}(?:%\d+)?\b',
+            # Standard IPv6 with :: compression - comprehensive patterns
+            r'\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4}){2,6}::[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4})*\b',
+            r'\b[0-9a-fA-F]{1,4}::[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4}){1,6}\b',
+            r'\b::[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4}){1,7}\b',
+            r'\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4}){1,6}::\b',
+            # Full IPv6 without compression (8 groups)
+            r'\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b',
+            # Partial matches for any remaining IPv6-like patterns
+            r'\b[0-9a-fA-F]{1,4}::[0-9a-fA-F]{1,4}\b'
+        ]
+        
         def defang_ipv6(match):
             return match.group(0).replace(':', '[:]')
-        result = re.sub(ipv6_pattern, defang_ipv6, result)
+        
+        for pattern in ipv6_patterns:
+            result = re.sub(pattern, defang_ipv6, result)
         
         return result
     except Exception:
@@ -532,7 +547,6 @@ def generate_enhanced_url_analysis(url_output, url_results):
     # Remove the existing summary and menu hints from url_output
     lines = url_output.split('\n')
     clean_lines = []
-    skip_until_blank = False
     
     for line in lines:
         line_clean = re.sub(r'\033\[[0-9;]*m', '', line).strip()
@@ -573,14 +587,9 @@ def generate_enhanced_url_analysis(url_output, url_results):
             comment = result['comment']
             representative_url = result.get('representative_url', '')
             
-            # Apply defanging if needed
-            from . import defanger
-            if defanger.should_defang():
-                display_domain = defanger.defang_text(domain)
-                display_representative = defanger.defang_text(representative_url) if representative_url else ''
-            else:
-                display_domain = domain
-                display_representative = representative_url
+            # FIXED: Apply defanging directly using our own function
+            display_domain = apply_defanging_to_output(domain, True) if '[.]' not in domain else domain
+            display_representative = apply_defanging_to_output(representative_url, True) if representative_url and '[.]' not in representative_url and '[:]' not in representative_url else representative_url
             
             # Format domain line
             enhanced_lines.append(f"- {display_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {comment}")
@@ -592,53 +601,7 @@ def generate_enhanced_url_analysis(url_output, url_results):
         enhanced_lines.append("")  # Blank line after each category
     
     return "\n".join(enhanced_lines)
-    """Generate detailed URL breakdown for integration into URL section."""
-    if not url_results:
-        return ""
-    
-    breakdown_lines = []
-    
-    # Group by verdict for detailed display
-    malicious_domains = [r for r in url_results if r['verdict'] == 'malicious']
-    suspicious_domains = [r for r in url_results if r['verdict'] == 'suspicious']
-    benign_domains = [r for r in url_results if r['verdict'] == 'benign']
-    unchecked_domains = [r for r in url_results if r['verdict'] == 'unchecked']
-    
-    # Show detailed breakdown for each category if there are multiple URLs
-    for category_name, domains, color in [
-        ("MALICIOUS", malicious_domains, "red"),
-        ("SUSPICIOUS", suspicious_domains, "orange3"),
-        ("UNCHECKED", unchecked_domains, "orange3"),
-        ("BENIGN", benign_domains, "green")
-    ]:
-        if not domains:
-            continue
-            
-        # Check if any domain has multiple URLs
-        has_multiple_urls = any(len(d['urls']) > 1 for d in domains)
-        
-        if has_multiple_urls:
-            breakdown_lines.append("")  # Spacing
-            breakdown_lines.append(f"\033[{'31' if color == 'red' else '93' if color == 'orange3' else '32' if color == 'green' else '33'}mDetailed {category_name} URL Breakdown:\033[0m")
-            
-            for result in domains:
-                if len(result['urls']) > 1:
-                    domain = result['domain']
-                    urls = result['urls']
-                    
-                    # Apply defanging
-                    from . import defanger
-                    if defanger.should_defang():
-                        display_domain = defanger.defang_text(domain)
-                        display_urls = [defanger.defang_text(url) for url in urls]
-                    else:
-                        display_domain = domain
-                        display_urls = urls
-                    
-                    breakdown_lines.append(f"  {display_domain} ({len(urls)} URLs):")
-                    for i, url in enumerate(display_urls, 1):
-                        breakdown_lines.append(f"    {i:2}. {url}")
-    
+
 def generate_detailed_url_breakdown(url_results):
     """Generate the additional detailed URL breakdown for domains with multiple URLs."""
     if not url_results:
@@ -674,62 +637,14 @@ def generate_detailed_url_breakdown(url_results):
                     domain = result['domain']
                     urls = result['urls']
                     
-                    # Apply defanging
-                    from . import defanger
-                    if defanger.should_defang():
-                        display_domain = defanger.defang_text(domain)
-                        display_urls = [defanger.defang_text(url) for url in urls]
-                    else:
-                        display_domain = domain
-                        display_urls = urls
-                    
-                    breakdown_lines.append(f"  {display_domain} ({len(urls)} URLs):")
-                    for i, url in enumerate(display_urls, 1):
-                        breakdown_lines.append(f"    {i:2}. {url}")
-    
-    return "\n".join(breakdown_lines)
-    """Generate detailed URL breakdown for integration into URL section."""
-    if not url_results:
-        return ""
-    
-    breakdown_lines = []
-    
-    # Group by verdict for detailed display
-    malicious_domains = [r for r in url_results if r['verdict'] == 'malicious']
-    suspicious_domains = [r for r in url_results if r['verdict'] == 'suspicious']
-    benign_domains = [r for r in url_results if r['verdict'] == 'benign']
-    unchecked_domains = [r for r in url_results if r['verdict'] == 'unchecked']
-    
-    # Show detailed breakdown for each category if there are multiple URLs
-    for category_name, domains, color in [
-        ("MALICIOUS", malicious_domains, "red"),
-        ("SUSPICIOUS", suspicious_domains, "orange3"),
-        ("UNCHECKED", unchecked_domains, "orange3"),
-        ("BENIGN", benign_domains, "green")
-    ]:
-        if not domains:
-            continue
-            
-        # Check if any domain has multiple URLs
-        has_multiple_urls = any(len(d['urls']) > 1 for d in domains)
-        
-        if has_multiple_urls:
-            breakdown_lines.append("")  # Spacing
-            breakdown_lines.append(f"\033[{'31' if color == 'red' else '93' if color == 'orange3' else '32' if color == 'green' else '33'}mDetailed {category_name} URL Breakdown:\033[0m")
-            
-            for result in domains:
-                if len(result['urls']) > 1:
-                    domain = result['domain']
-                    urls = result['urls']
-                    
-                    # Apply defanging
-                    from . import defanger
-                    if defanger.should_defang():
-                        display_domain = defanger.defang_text(domain)
-                        display_urls = [defanger.defang_text(url) for url in urls]
-                    else:
-                        display_domain = domain
-                        display_urls = urls
+                    # FIXED: Apply defanging directly using our own function
+                    display_domain = apply_defanging_to_output(domain, True) if '[.]' not in domain else domain
+                    display_urls = []
+                    for url in urls:
+                        if '[.]' not in url and '[:]' not in url:
+                            display_urls.append(apply_defanging_to_output(url, True))
+                        else:
+                            display_urls.append(url)
                     
                     breakdown_lines.append(f"  {display_domain} ({len(urls)} URLs):")
                     for i, url in enumerate(display_urls, 1):
@@ -788,65 +703,6 @@ def generate_detailed_body_breakdown(body_results):
             breakdown_lines.append("")  # Blank line between categories
     
     return "\n".join(breakdown_lines)
-
-def extract_header_factors(header_output):
-    """Extract warning and benign factors from header analysis output."""
-    if not header_output:
-        return "", ""
-    
-    lines = header_output.split('\n')
-    warning_factors = []
-    benign_factors = []
-    malicious_factors = []
-    
-    current_section = None
-    
-    for line in lines:
-        line_clean = re.sub(r'\033\[[0-9;]*m', '', line).strip()  # Remove ANSI codes
-        
-        if line_clean.startswith("Malicious factors:"):
-            current_section = "malicious"
-            continue
-        elif line_clean.startswith("Warning factors:"):
-            current_section = "warning"
-            continue
-        elif line_clean.startswith("Benign factors:"):
-            current_section = "benign"
-            continue
-        elif line_clean.startswith("HEADER ASSESSMENT:"):
-            break
-        
-        if current_section and line_clean.startswith("- "):
-            factor = line_clean[2:]  # Remove "- "
-            if current_section == "warning":
-                warning_factors.append(factor)
-            elif current_section == "benign":
-                benign_factors.append(factor)
-            elif current_section == "malicious":
-                malicious_factors.append(factor)
-    
-    # Format the factors with proper coloring
-    factors_output = []
-    
-    if malicious_factors:
-        factors_output.append("\033[31mMalicious factors:\033[0m")
-        for factor in malicious_factors:
-            factors_output.append(f"- {factor}")
-        factors_output.append("")
-    
-    if warning_factors:
-        factors_output.append("\033[93mWarning factors:\033[0m")
-        for factor in warning_factors:
-            factors_output.append(f"- {factor}")
-        factors_output.append("")
-    
-    if benign_factors:
-        factors_output.append("\033[32mBenign factors:\033[0m")
-        for factor in benign_factors:
-            factors_output.append(f"- {factor}")
-        factors_output.append("")
-    
-    return "\n".join(factors_output)
 
 def remove_header_factors_and_menu_hints(header_output):
     """Remove factors section and menu hints from header output."""
@@ -991,9 +847,9 @@ SHA256: {file_hash}
         if clean_header_output.strip():
             html_content += ansi_to_html_careful(clean_header_output)
         
-        # Add detailed received hops if available
+        # Add detailed received hops if available (without the header)
         if received_hops:
-            html_content += '\n<span style="color: #2472c8;">Detailed Email Routing Hops:</span>\n\n'
+            html_content += '\n\n'  # Just add spacing
             
             for hop in received_hops:
                 index = hop.get('index', '?')

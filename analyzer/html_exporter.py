@@ -377,7 +377,7 @@ def capture_complete_analysis_data(file_path, file_type, use_defanged):
                     result = func(*args, **kwargs)
                     output_text = captured_output.getvalue()
                     
-                    # Apply additional defanging as backup (this should now be redundant)
+                    # FIXED: Only apply defanging if user chose defanged export
                     if use_defanged:
                         output_text = apply_defanging_to_output(output_text, True)
                     
@@ -549,7 +549,7 @@ def extract_header_factors_and_assessment(header_output):
     
     return "\n".join(factors_output), assessment_line
 
-def generate_enhanced_url_analysis(url_output, url_results):
+def generate_enhanced_url_analysis(url_output, url_results, use_defanged=True):
     """Generate enhanced URL analysis that matches the terminal output format."""
     if not url_results:
         return url_output
@@ -597,9 +597,9 @@ def generate_enhanced_url_analysis(url_output, url_results):
             comment = result['comment']
             representative_url = result.get('representative_url', '')
             
-            # FIXED: Apply defanging directly using our own function
-            display_domain = apply_defanging_to_output(domain, True) if '[.]' not in domain else domain
-            display_representative = apply_defanging_to_output(representative_url, True) if representative_url and '[.]' not in representative_url and '[:]' not in representative_url else representative_url
+            # FIXED: Apply defanging only if requested for export
+            display_domain = apply_defanging_to_output(domain, use_defanged) if use_defanged and '[.]' not in domain else domain
+            display_representative = apply_defanging_to_output(representative_url, use_defanged) if use_defanged and representative_url and '[.]' not in representative_url and '[:]' not in representative_url else representative_url
             
             # Format domain line
             enhanced_lines.append(f"- {display_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {comment}")
@@ -612,7 +612,7 @@ def generate_enhanced_url_analysis(url_output, url_results):
     
     return "\n".join(enhanced_lines)
 
-def generate_detailed_url_breakdown(url_results):
+def generate_detailed_url_breakdown(url_results, use_defanged=True):
     """Generate the additional detailed URL breakdown for domains with multiple URLs."""
     if not url_results:
         return ""
@@ -647,11 +647,11 @@ def generate_detailed_url_breakdown(url_results):
                     domain = result['domain']
                     urls = result['urls']
                     
-                    # FIXED: Apply defanging directly using our own function
-                    display_domain = apply_defanging_to_output(domain, True) if '[.]' not in domain else domain
+                    # FIXED: Apply defanging only if requested for export
+                    display_domain = apply_defanging_to_output(domain, use_defanged) if use_defanged and '[.]' not in domain else domain
                     display_urls = []
                     for url in urls:
-                        if '[.]' not in url and '[:]' not in url:
+                        if use_defanged and '[.]' not in url and '[:]' not in url:
                             display_urls.append(apply_defanging_to_output(url, True))
                         else:
                             display_urls.append(url)
@@ -896,13 +896,13 @@ SHA256: {file_hash}
     
     if url_output and url_output.strip():
         # Generate enhanced URL analysis that matches the terminal format
-        enhanced_url_output = generate_enhanced_url_analysis(url_output, url_results)
+        enhanced_url_output = generate_enhanced_url_analysis(url_output, url_results, use_defanged)
         
         html_content += '\n<div class="section-header">================================ URL ANALYSIS ================================</div>\n'
         html_content += ansi_to_html_careful(enhanced_url_output)
         
         # Add additional detailed URL breakdown for domains with multiple URLs
-        detailed_breakdown = generate_detailed_url_breakdown(url_results)
+        detailed_breakdown = generate_detailed_url_breakdown(url_results, use_defanged)
         if detailed_breakdown.strip():
             html_content += '\n' + ansi_to_html_careful(detailed_breakdown)
             # Add extra spacing after detailed breakdown to match terminal output

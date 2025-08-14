@@ -1,6 +1,6 @@
 """
-HTML Export module for phishalyzer.
-Exports comprehensive analysis results to HTML format.
+Complete Terminal-style HTML Export module for phishalyzer.
+Matches terminal output exactly with proper color coding and formatting.
 """
 
 import os
@@ -124,7 +124,7 @@ def apply_export_defanging(text, use_defanged):
     return defanger.defang_text(str(text))
 
 def escape_html(text):
-    """Escape HTML special characters."""
+    """Escape HTML special characters but preserve line breaks."""
     if not isinstance(text, str):
         text = str(text)
     
@@ -141,20 +141,65 @@ def escape_html(text):
     
     return text
 
-def clean_verdict_text(verdict_text):
-    """Clean verdict text by removing reason explanations."""
-    # Remove anything after " - " or " (" that contains explanatory text
-    if " - " in verdict_text:
-        verdict_text = verdict_text.split(" - ")[0]
-    elif " (" in verdict_text and verdict_text.count("(") == 1:
-        verdict_text = verdict_text.split(" (")[0]
+def colorize_text(text, color):
+    """Add terminal-style color to text."""
+    color_map = {
+        'red': 'terminal-red',
+        'green': 'terminal-green',
+        'yellow': 'terminal-yellow',
+        'blue': 'terminal-blue',
+        'magenta': 'terminal-magenta',
+        'cyan': 'terminal-cyan',
+        'orange': 'terminal-orange',
+        'orange3': 'terminal-orange',
+        'white': 'terminal-white'
+    }
     
-    return verdict_text.strip()
+    css_class = color_map.get(color, 'terminal-white')
+    return f'<span class="{css_class}">{escape_html(str(text))}</span>'
+
+def format_section_header(title):
+    """Format a section header exactly like the terminal output."""
+    total_width = 50
+    title_with_spaces = f" {title.upper()} "
+    padding_needed = total_width - len(title_with_spaces)
+    left_padding = padding_needed // 2
+    right_padding = padding_needed - left_padding
+    header_line = "=" * left_padding + title_with_spaces + "=" * right_padding
+    return f'\n\n{colorize_text(header_line, "magenta")}\n\n'
+
+def format_ip_with_colors(text, use_defanged):
+    """Color-code IP addresses and timestamps in text like terminal output."""
+    # Apply defanging first if requested
+    if use_defanged:
+        text = apply_export_defanging(text, True)
+    
+    # Escape HTML
+    text = escape_html(text)
+    
+    # Color IP addresses (yellow)
+    ip_pattern = r'\b(?:\d{1,3}\.){3}\d{1,3}\b'
+    defanged_ip_pattern = r'\b(?:\d{1,3}\[\.\]){3}\d{1,3}\b'
+    
+    text = re.sub(ip_pattern, lambda m: colorize_text(m.group(0), 'yellow'), text)
+    text = re.sub(defanged_ip_pattern, lambda m: colorize_text(m.group(0), 'yellow'), text)
+    
+    # Color timestamps (blue) - comprehensive patterns
+    timestamp_patterns = [
+        r'\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun),?\s+\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}\s+\d{2}:\d{2}:\d{2}\s+[+-]\d{4}\b',
+        r'\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}\s+\d{2}:\d{2}:\d{2}\s+[+-]\d{4}\b',
+        r'\b\d{2}:\d{2}:\d{2}\s+[+-]\d{4}\b'
+    ]
+    
+    for pattern in timestamp_patterns:
+        text = re.sub(pattern, lambda m: colorize_text(m.group(0), 'blue'), text)
+    
+    return text
 
 def format_authentication_results(auth_text, use_defanged):
-    """Format authentication results with proper HTML coloring."""
+    """Format authentication results with exact terminal colors."""
     if not auth_text:
-        return "MISSING"
+        return colorize_text("MISSING", "red")
     
     # Apply defanging if requested
     if use_defanged:
@@ -163,33 +208,57 @@ def format_authentication_results(auth_text, use_defanged):
     # Escape HTML
     auth_text = escape_html(auth_text)
     
-    # Apply color coding for authentication terms
-    failure_terms = ["fail", "softfail", "temperror", "permerror", "invalid", "missing", "bad", "hardfail", "not", "signed"]
+    # Color authentication terms exactly like terminal
+    failure_terms = ["fail", "softfail", "temperror", "permerror", "invalid", "missing", "bad", "hardfail", "not"]
     pass_terms = ["pass", "bestguesspass"]
     warning_terms = ["neutral", "policy", "none", "unknown"]
     
     # Color failure terms red
     for term in failure_terms:
         pattern = rf'\b{re.escape(term)}\b'
-        auth_text = re.sub(pattern, f'<span style="color: red; font-weight: bold;">{term}</span>', auth_text, flags=re.IGNORECASE)
+        auth_text = re.sub(pattern, lambda m: colorize_text(m.group(0), 'red'), auth_text, flags=re.IGNORECASE)
     
     # Color pass terms green
     for term in pass_terms:
         pattern = rf'\b{re.escape(term)}\b'
-        auth_text = re.sub(pattern, f'<span style="color: green; font-weight: bold;">{term}</span>', auth_text, flags=re.IGNORECASE)
+        auth_text = re.sub(pattern, lambda m: colorize_text(m.group(0), 'green'), auth_text, flags=re.IGNORECASE)
     
     # Color warning terms orange
     for term in warning_terms:
         pattern = rf'\b{re.escape(term)}\b'
-        auth_text = re.sub(pattern, f'<span style="color: orange; font-weight: bold;">{term}</span>', auth_text, flags=re.IGNORECASE)
+        auth_text = re.sub(pattern, lambda m: colorize_text(m.group(0), 'orange'), auth_text, flags=re.IGNORECASE)
     
-    # Handle special multi-word cases
-    auth_text = re.sub(r'\bnot\s+signed\b', '<span style="color: red; font-weight: bold;">not signed</span>', auth_text, flags=re.IGNORECASE)
+    # Handle special cases
+    auth_text = re.sub(r'\bnot\s+signed\b', lambda m: colorize_text(m.group(0), 'red'), auth_text, flags=re.IGNORECASE)
+    
+    # Color IP addresses in authentication results
+    auth_text = format_ip_with_colors(auth_text, False)  # Don't double-defang
     
     return auth_text
 
-def generate_html_report(email_file_path, file_type, use_defanged=False):
-    """Generate comprehensive HTML report from analysis results."""
+def safe_format_file_size(size_bytes):
+    """Format file size exactly like the terminal output."""
+    try:
+        if not isinstance(size_bytes, (int, float)) or size_bytes < 0:
+            return "Unknown size"
+        
+        if size_bytes == 0:
+            return "0 B"
+        
+        size_names = ["B", "KB", "MB", "GB"]
+        i = 0
+        size = float(size_bytes)
+        
+        while size >= 1024.0 and i < len(size_names) - 1:
+            size /= 1024.0
+            i += 1
+        
+        return f"{size:.1f} {size_names[i]}"
+    except Exception:
+        return "Unknown size"
+
+def generate_comprehensive_terminal_html(email_file_path, file_type, use_defanged=False):
+    """Generate HTML that exactly matches terminal output with complete formatting."""
     
     # Get global analysis results
     try:
@@ -215,449 +284,311 @@ def generate_html_report(email_file_path, file_type, use_defanged=False):
     file_hash = calculate_file_hash(email_file_path)
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-    # Start building HTML
+    # Start building HTML with exact terminal styling
     html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Email Analysis Report - {escape_html(email_filename)}</title>
+    <title>Phishalyzer Analysis Report - {escape_html(email_filename)}</title>
     <style>
         body {{
-            font-family: 'Courier New', monospace;
-            line-height: 1.6;
-            margin: 20px;
-            background-color: #f5f5f5;
+            background-color: #0c0c0c;
+            color: #cccccc;
+            font-family: 'Courier New', 'Consolas', 'Monaco', monospace;
+            font-size: 14px;
+            line-height: 1.4;
+            margin: 0;
+            padding: 20px;
+            white-space: pre-wrap;
         }}
-        .container {{
-            max-width: 1200px;
-            margin: 0 auto;
-            background-color: white;
-            padding: 30px;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        
+        .terminal-container {{
+            background-color: #0c0c0c;
+            border: 1px solid #333333;
+            border-radius: 5px;
+            padding: 20px;
+            max-width: none;
+            overflow-x: auto;
         }}
-        h1 {{
-            color: #2c3e50;
-            text-align: center;
-            border-bottom: 3px solid #3498db;
-            padding-bottom: 10px;
-            margin-bottom: 30px;
-        }}
-        h2 {{
-            color: #2c3e50;
-            border-bottom: 2px solid #3498db;
-            padding-bottom: 5px;
-            margin-top: 30px;
-            margin-bottom: 15px;
-        }}
-        h3 {{
-            color: #34495e;
-            margin-top: 20px;
-            margin-bottom: 10px;
-        }}
-        .info-table {{
-            width: 100%;
-            border-collapse: collapse;
+        
+        /* Exact terminal color classes */
+        .terminal-red {{ color: #cd3131; font-weight: bold; }}
+        .terminal-green {{ color: #0dbc79; font-weight: bold; }}
+        .terminal-yellow {{ color: #e5e510; font-weight: bold; }}
+        .terminal-blue {{ color: #2472c8; font-weight: bold; }}
+        .terminal-magenta {{ color: #bc3fbc; font-weight: bold; }}
+        .terminal-cyan {{ color: #11a8cd; font-weight: bold; }}
+        .terminal-orange {{ color: #ff8c00; font-weight: bold; }}
+        .terminal-white {{ color: #e5e5e5; }}
+        
+        .report-header {{
+            border-bottom: 1px solid #333333;
+            padding-bottom: 20px;
             margin-bottom: 20px;
         }}
-        .info-table th, .info-table td {{
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-        }}
-        .info-table th {{
-            background-color: #3498db;
-            color: white;
-            font-weight: bold;
-        }}
-        .critical {{ color: #e74c3c; font-weight: bold; }}
-        .high {{ color: #e67e22; font-weight: bold; }}
-        .medium {{ color: #f39c12; font-weight: bold; }}
-        .low {{ color: #f1c40f; font-weight: bold; }}
-        .benign {{ color: #27ae60; font-weight: bold; }}
-        .info {{ color: #3498db; font-weight: bold; }}
-        .unchecked {{ color: #f39c12; }}
-        .malicious {{ color: #e74c3c; font-weight: bold; }}
-        .suspicious {{ color: #e67e22; font-weight: bold; }}
-        .finding-item {{
-            margin: 10px 0;
-            padding: 10px;
-            background-color: #f8f9fa;
-            border-left: 4px solid #3498db;
-            border-radius: 4px;
-        }}
-        .no-findings {{
-            color: #27ae60;
-            font-style: italic;
-            padding: 10px;
-            background-color: #d5f4e6;
-            border-radius: 4px;
-            margin: 10px 0;
-        }}
-        .hash-text {{
-            font-family: 'Courier New', monospace;
-            font-size: 11px;
-            word-break: break-all;
-            background-color: #f8f9fa;
-            padding: 5px;
-            border-radius: 3px;
-        }}
-        ul, ol {{
-            margin-left: 20px;
-        }}
-        .hop-item {{
-            margin: 5px 0;
-            padding: 8px;
-            background-color: #f8f9fa;
-            border-radius: 3px;
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-        }}
+        
+        a {{ color: #3b8eea; }}
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>EMAIL ANALYSIS REPORT</h1>
-        
-        <table class="info-table">
-            <tr>
-                <th colspan="2" style="text-align: center;">Report Details</th>
-            </tr>
-            <tr>
-                <td><strong>Generated:</strong></td>
-                <td>{timestamp}</td>
-            </tr>
-            <tr>
-                <td><strong>File Name:</strong></td>
-                <td>{escape_html(email_filename)}</td>
-            </tr>
-            <tr>
-                <td><strong>File Size:</strong></td>
-                <td>{file_size}</td>
-            </tr>
-            <tr>
-                <td><strong>File Type:</strong></td>
-                <td>{file_type.upper()}</td>
-            </tr>
-            <tr>
-                <td><strong>SHA256 Hash:</strong></td>
-                <td><div class="hash-text">{file_hash}</div></td>
-            </tr>
-            <tr>
-                <td><strong>Output Format:</strong></td>
-                <td>{'Defanged' if use_defanged else 'Fanged'}</td>
-            </tr>
-        </table>
+    <div class="terminal-container">
+        <div class="report-header">
+{colorize_text("EMAIL ANALYSIS REPORT", "blue")}
+
+Generated: {timestamp}
+File: {escape_html(email_filename)}
+Size: {file_size}
+Type: {file_type.upper()}
+SHA256: {file_hash}
+Output: {'Defanged' if use_defanged else 'Fanged'}
+        </div>
 """
 
     # Email Header Analysis Section
-    html_content += """
-        <h2>📧 Email Header Analysis</h2>
-"""
+    html_content += format_section_header("EMAIL HEADER ANALYSIS")
     
-    # Basic email headers
     try:
-        # Get email object to extract basic headers
+        # Load email to get basic headers
         from . import parser
         msg_obj, _ = parser.load_email(email_file_path)
         
-        basic_headers = {
-            'From': msg_obj.get('From', 'MISSING'),
-            'To': msg_obj.get('To', 'MISSING'),
-            'Subject': msg_obj.get('Subject', 'MISSING'),
-            'Date': msg_obj.get('Date', 'MISSING'),
-            'Return-Path': msg_obj.get('Return-Path', 'MISSING'),
-            'Reply-To': msg_obj.get('Reply-To', 'MISSING'),
-            'Message-ID': msg_obj.get('Message-ID', 'MISSING')
-        }
+        # Basic headers with exact terminal formatting
+        headers_to_show = [
+            ('From', msg_obj.get('From', '')),
+            ('Return-Path', msg_obj.get('Return-Path', '')),
+            ('Reply-To', msg_obj.get('Reply-To', '')),
+            ('Message-ID', msg_obj.get('Message-ID', '')),
+            ('Subject', msg_obj.get('Subject', '')),
+            ('Date', msg_obj.get('Date', ''))
+        ]
         
-        html_content += '<div class="finding-item"><h3>Basic Headers</h3><ul>'
-        for header, value in basic_headers.items():
-            if value == 'MISSING':
-                html_content += f'<li><strong>{header}:</strong> <span class="critical">MISSING</span></li>'
+        for header_name, header_value in headers_to_show:
+            if not header_value or not header_value.strip():
+                html_content += f"{colorize_text(f'{header_name}:', 'blue')} {colorize_text('MISSING', 'red')}\n"
             else:
-                escaped_value = escape_html(apply_export_defanging(value, use_defanged))
-                html_content += f'<li><strong>{header}:</strong> {escaped_value}</li>'
-        html_content += '</ul></div>'
+                display_value = apply_export_defanging(header_value, use_defanged)
+                # Color IP addresses in headers
+                display_value = format_ip_with_colors(display_value, False)
+                html_content += f"{colorize_text(f'{header_name}:', 'blue')} {display_value}\n"
         
-        # Authentication Results
+        html_content += "\n"
+        
+        # Authentication Results with exact formatting
         auth_results = msg_obj.get('Authentication-Results', '')
-        html_content += '<div class="finding-item"><h3>Authentication Results</h3>'
-        if auth_results:
-            formatted_auth = format_authentication_results(auth_results, use_defanged)
-            html_content += f'<p>{formatted_auth}</p>'
+        formatted_auth = format_authentication_results(auth_results, use_defanged)
+        html_content += f"{colorize_text('Authentication-Results:', 'blue')} {formatted_auth}\n\n"
+        
+        # Routing hops with exact terminal formatting
+        if received_hops and len(received_hops) > 0:
+            html_content += f"Found {colorize_text(str(len(received_hops)), 'blue')} routing hop{'s' if len(received_hops) != 1 else ''}:\n\n"
+            for hop in received_hops:
+                index = hop.get('index', '?')
+                raw_content = hop.get('raw', hop.get('content', 'No content'))
+                # Remove ANSI codes and apply defanging and coloring
+                clean_content = re.sub(r'\033\[[0-9;]*m', '', str(raw_content))
+                colored_content = format_ip_with_colors(clean_content, use_defanged)
+                html_content += f"{colorize_text(f'[{index}]', 'blue')} {colored_content}\n"
         else:
-            html_content += '<p class="critical">MISSING</p>'
-        html_content += '</div>'
+            html_content += f"{colorize_text('No routing information found', 'yellow')}\n"
+            html_content += f"{colorize_text('This may indicate header sanitization or local processing', 'blue')}\n"
         
     except Exception as e:
-        html_content += f'<div class="finding-item"><p class="critical">Error extracting headers: {escape_html(str(e))}</p></div>'
-    
-    # Routing Hops
-    html_content += '<div class="finding-item"><h3>Email Routing Hops</h3>'
-    if received_hops and len(received_hops) > 0:
-        html_content += f'<p><strong>Found {len(received_hops)} routing hop{"s" if len(received_hops) != 1 else ""}:</strong></p><ol>'
-        for hop in received_hops:
-            # Strip ANSI codes and apply defanging
-            raw_content = hop.get('raw', hop.get('content', 'No content'))
-            # Remove ANSI color codes
-            import re
-            clean_content = re.sub(r'\033\[[0-9;]*m', '', str(raw_content))
-            clean_content = apply_export_defanging(clean_content, use_defanged)
-            escaped_content = escape_html(clean_content)
-            html_content += f'<li class="hop-item">{escaped_content}</li>'
-        html_content += '</ol>'
-    else:
-        html_content += '<p class="no-findings">No routing information found</p>'
-    html_content += '</div>'
+        html_content += f"{colorize_text(f'Error extracting headers: {str(e)}', 'red')}\n"
 
     # IP Address Analysis Section
-    html_content += """
-        <h2>🌐 IP Address Analysis</h2>
-"""
+    html_content += format_section_header("IP ADDRESS ANALYSIS")
     
     if ip_results and len(ip_results) > 0:
-        # Group IPs by verdict
-        malicious_ips = [ip for ip in ip_results if ip[2] == 'malicious']
-        suspicious_ips = [ip for ip in ip_results if ip[2] == 'suspicious']
-        benign_ips = [ip for ip in ip_results if ip[2] == 'benign']
-        unchecked_ips = [ip for ip in ip_results if ip[2] == 'unchecked']
-        
-        if malicious_ips:
-            html_content += '<div class="finding-item"><h3 class="malicious">Malicious IP Addresses</h3><ul>'
-            for ip_data in malicious_ips:
+        for ip_data in ip_results:
+            if len(ip_data) >= 4:
                 ip, country, verdict, comment = ip_data[:4]
                 display_ip = apply_export_defanging(ip, use_defanged)
-                html_content += f'<li><strong>IP:</strong> <span class="malicious">{escape_html(display_ip)}</span> ({escape_html(country)}) - {escape_html(comment)}</li>'
-            html_content += '</ul></div>'
-        
-        if suspicious_ips:
-            html_content += '<div class="finding-item"><h3 class="suspicious">Suspicious IP Addresses</h3><ul>'
-            for ip_data in suspicious_ips:
-                ip, country, verdict, comment = ip_data[:4]
-                display_ip = apply_export_defanging(ip, use_defanged)
-                html_content += f'<li><strong>IP:</strong> <span class="suspicious">{escape_html(display_ip)}</span> ({escape_html(country)}) - {escape_html(comment)}</li>'
-            html_content += '</ul></div>'
-        
-        if unchecked_ips:
-            html_content += '<div class="finding-item"><h3 class="unchecked">Unchecked IP Addresses</h3><ul>'
-            for ip_data in unchecked_ips:
-                ip, country, verdict, comment = ip_data[:4]
-                display_ip = apply_export_defanging(ip, use_defanged)
-                clean_verdict = clean_verdict_text(f"IP: {display_ip} ({country}) - Verdict: {verdict.upper()}")
-                html_content += f'<li>{escape_html(clean_verdict)}</li>'
-            html_content += '</ul></div>'
-        
-        if benign_ips:
-            html_content += '<div class="finding-item"><h3 class="benign">Benign IP Addresses</h3><ul>'
-            for ip_data in benign_ips:
-                ip, country, verdict, comment = ip_data[:4]
-                display_ip = apply_export_defanging(ip, use_defanged)
-                html_content += f'<li><strong>IP:</strong> <span class="benign">{escape_html(display_ip)}</span> ({escape_html(country)}) - {escape_html(comment)}</li>'
-            html_content += '</ul></div>'
+                
+                verdict_color = {
+                    'malicious': 'red', 
+                    'suspicious': 'orange', 
+                    'benign': 'green', 
+                    'unchecked': 'orange'
+                }.get(verdict, 'white')
+                
+                html_content += f"IP: {colorize_text(display_ip, 'yellow')} ({escape_html(country)}) - Verdict: {colorize_text(verdict.upper(), verdict_color)} ({escape_html(comment)})\n"
     else:
-        html_content += '<div class="no-findings">No IP addresses detected in email headers or body</div>'
+        html_content += f"{colorize_text('IP address analysis completed successfully.', 'green')}\n"
+        html_content += f"{colorize_text('No IP addresses were detected in the email.', 'green')}\n"
+        html_content += "This indicates:\n"
+        html_content += "- Clean email headers and body\n"
+        html_content += "- No embedded IP addresses found\n"
+        html_content += "- Network infrastructure details may have been sanitized\n"
 
-    # URL Analysis Section
-    html_content += """
-        <h2>🔗 URL Analysis</h2>
-"""
+    # URL Analysis Section  
+    html_content += format_section_header("URL ANALYSIS")
     
     if url_results and len(url_results) > 0:
         total_urls = sum(len(r.get('urls', [])) for r in url_results)
-        html_content += f'<p><strong>Found {total_urls} URL{"s" if total_urls != 1 else ""} across {len(url_results)} domain{"s" if len(url_results) != 1 else ""}:</strong></p>'
+        html_content += f"Found {colorize_text(str(total_urls), 'blue')} URL{'s' if total_urls != 1 else ''} across {colorize_text(str(len(url_results)), 'blue')} domain{'s' if len(url_results) != 1 else ''}:\n\n"
         
-        # Group by verdict
-        malicious_domains = [r for r in url_results if r.get('verdict') == 'malicious']
-        suspicious_domains = [r for r in url_results if r.get('verdict') == 'suspicious']
-        benign_domains = [r for r in url_results if r.get('verdict') == 'benign']
-        unchecked_domains = [r for r in url_results if r.get('verdict') == 'unchecked']
+        # Group by verdict and display exactly like terminal
+        verdict_groups = [
+            ('malicious', 'red', 'MALICIOUS DOMAINS'),
+            ('suspicious', 'orange', 'SUSPICIOUS DOMAINS'), 
+            ('unchecked', 'orange', 'UNCHECKED DOMAINS'),
+            ('benign', 'green', 'BENIGN DOMAINS')
+        ]
         
-        if malicious_domains:
-            html_content += '<div class="finding-item"><h3 class="malicious">Malicious Domains</h3><ul>'
-            for result in malicious_domains:
-                domain = result.get('domain', 'unknown')
-                urls = result.get('urls', [])
-                comment = result.get('comment', '')
-                display_domain = apply_export_defanging(domain, use_defanged)
-                html_content += f'<li><strong>{escape_html(display_domain)}</strong> ({len(urls)} URL{"s" if len(urls) != 1 else ""}) - {escape_html(comment)}<ul>'
-                for url in urls[:3]:  # Show first 3 URLs
-                    display_url = apply_export_defanging(url, use_defanged)
-                    html_content += f'<li>{escape_html(display_url)}</li>'
-                if len(urls) > 3:
-                    html_content += f'<li><em>... and {len(urls) - 3} more</em></li>'
-                html_content += '</ul></li>'
-            html_content += '</ul></div>'
-        
-        if suspicious_domains:
-            html_content += '<div class="finding-item"><h3 class="suspicious">Suspicious Domains</h3><ul>'
-            for result in suspicious_domains:
-                domain = result.get('domain', 'unknown')
-                urls = result.get('urls', [])
-                comment = result.get('comment', '')
-                display_domain = apply_export_defanging(domain, use_defanged)
-                html_content += f'<li><strong>{escape_html(display_domain)}</strong> ({len(urls)} URL{"s" if len(urls) != 1 else ""}) - {escape_html(comment)}<ul>'
-                for url in urls[:3]:
-                    display_url = apply_export_defanging(url, use_defanged)
-                    html_content += f'<li>{escape_html(display_url)}</li>'
-                if len(urls) > 3:
-                    html_content += f'<li><em>... and {len(urls) - 3} more</em></li>'
-                html_content += '</ul></li>'
-            html_content += '</ul></div>'
-        
-        if unchecked_domains:
-            html_content += '<div class="finding-item"><h3 class="unchecked">Unchecked Domains</h3><ul>'
-            for result in unchecked_domains:
-                domain = result.get('domain', 'unknown')
-                urls = result.get('urls', [])
-                display_domain = apply_export_defanging(domain, use_defanged)
-                html_content += f'<li><strong>{escape_html(display_domain)}</strong> ({len(urls)} URL{"s" if len(urls) != 1 else ""})<ul>'
-                for url in urls[:2]:
-                    display_url = apply_export_defanging(url, use_defanged)
-                    html_content += f'<li>{escape_html(display_url)}</li>'
-                if len(urls) > 2:
-                    html_content += f'<li><em>... and {len(urls) - 2} more</em></li>'
-                html_content += '</ul></li>'
-            html_content += '</ul></div>'
-        
-        if benign_domains:
-            html_content += '<div class="finding-item"><h3 class="benign">Benign Domains</h3><ul>'
-            for result in benign_domains:
-                domain = result.get('domain', 'unknown')
-                urls = result.get('urls', [])
-                comment = result.get('comment', '')
-                display_domain = apply_export_defanging(domain, use_defanged)
-                html_content += f'<li><strong>{escape_html(display_domain)}</strong> ({len(urls)} URL{"s" if len(urls) != 1 else ""}) - {escape_html(comment)}</li>'
-            html_content += '</ul></div>'
+        for verdict_type, color, section_name in verdict_groups:
+            verdict_domains = [r for r in url_results if r.get('verdict') == verdict_type]
+            if verdict_domains:
+                html_content += f"{colorize_text(f'{section_name} ({len(verdict_domains)}):', color)}\n"
+                for result in verdict_domains:
+                    domain = result.get('domain', 'unknown')
+                    urls = result.get('urls', [])
+                    comment = result.get('comment', '')
+                    display_domain = apply_export_defanging(domain, use_defanged)
+                    
+                    html_content += f"- {escape_html(display_domain)} ({len(urls)} URL{'s' if len(urls) != 1 else ''}) - {escape_html(comment)}\n"
+                    
+                    # Show sample URLs
+                    if result.get('representative_url'):
+                        display_url = apply_export_defanging(result['representative_url'], use_defanged)
+                        html_content += f"  Sample: {escape_html(display_url)}\n"
+                html_content += "\n"
     else:
-        html_content += '<div class="no-findings">No URLs detected in email headers or body</div>'
+        html_content += f"{colorize_text('URL analysis completed successfully.', 'green')}\n"
+        html_content += f"{colorize_text('No URLs were detected in the email body or headers.', 'green')}\n"
+        html_content += "This could indicate:\n"
+        html_content += "- Clean email with no external links\n"
+        html_content += "- URLs may be obfuscated or embedded within attachments\n"
+        html_content += "- Manual verification may still be needed\n"
 
     # Email Body Analysis Section
-    html_content += """
-        <h2>📝 Email Body Analysis</h2>
-"""
+    html_content += format_section_header("EMAIL BODY ANALYSIS")
     
     if body_results and body_results.get('findings'):
         findings = body_results['findings']
         risk_score = body_results.get('risk_score', 0)
         
-        # Risk score color
-        if risk_score >= 70:
-            score_color = "critical"
-        elif risk_score >= 40:
-            score_color = "high"
-        else:
-            score_color = "medium"
+        score_color = 'red' if risk_score >= 70 else 'orange' if risk_score >= 40 else 'yellow'
+        html_content += f"Found potential phishing content (Risk score: {colorize_text(f'{risk_score}/100', score_color)}):\n"
         
-        html_content += f'<p><strong>Risk Score:</strong> <span class="{score_color}">{risk_score}/100</span></p>'
+        # Sort by risk level exactly like terminal
+        risk_order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
+        sorted_findings = sorted(findings.values(), key=lambda x: (risk_order.get(x.get("risk_level", "LOW"), 3), x.get("name", "")))
         
-        # Group findings by risk level
-        high_risk = {k: v for k, v in findings.items() if v.get('risk_level') == 'HIGH'}
-        medium_risk = {k: v for k, v in findings.items() if v.get('risk_level') == 'MEDIUM'}
-        low_risk = {k: v for k, v in findings.items() if v.get('risk_level') == 'LOW'}
-        
-        if high_risk:
-            html_content += '<div class="finding-item"><h3 class="critical">High Risk Findings</h3><ul>'
-            for finding in high_risk.values():
-                name = finding.get('name', 'Unknown')
-                description = finding.get('description', '')
-                keywords = finding.get('matched_keywords', [])
-                html_content += f'<li><strong>{escape_html(name)}:</strong> {escape_html(description)}<ul>'
-                for kw in keywords[:5]:  # Show first 5 keywords
-                    keyword_text = kw.get('keyword', '')
-                    matched_text = kw.get('matched_text', keyword_text)
-                    html_content += f'<li>"{escape_html(keyword_text)}" (found: "{escape_html(matched_text)}")</li>'
-                if len(keywords) > 5:
-                    html_content += f'<li><em>... and {len(keywords) - 5} more keywords</em></li>'
-                html_content += '</ul></li>'
-            html_content += '</ul></div>'
-        
-        if medium_risk:
-            html_content += '<div class="finding-item"><h3 class="high">Medium Risk Findings</h3><ul>'
-            for finding in medium_risk.values():
-                name = finding.get('name', 'Unknown')
-                description = finding.get('description', '')
-                keywords = finding.get('matched_keywords', [])
-                html_content += f'<li><strong>{escape_html(name)}:</strong> {escape_html(description)} ({len(keywords)} keyword{"s" if len(keywords) != 1 else ""})</li>'
-            html_content += '</ul></div>'
-        
-        if low_risk:
-            html_content += '<div class="finding-item"><h3 class="medium">Low Risk Findings</h3><ul>'
-            for finding in low_risk.values():
-                name = finding.get('name', 'Unknown')
-                description = finding.get('description', '')
-                keywords = finding.get('matched_keywords', [])
-                html_content += f'<li><strong>{escape_html(name)}:</strong> {escape_html(description)} ({len(keywords)} keyword{"s" if len(keywords) != 1 else ""})</li>'
-            html_content += '</ul></div>'
+        for finding in sorted_findings:
+            risk_level = finding.get('risk_level', 'LOW')
+            name = finding.get('name', 'Unknown')
+            keywords = finding.get('matched_keywords', [])
+            
+            risk_color = {'HIGH': 'red', 'MEDIUM': 'orange', 'LOW': 'yellow'}.get(risk_level, 'white')
+            
+            # Format exactly like terminal: "- [LEVEL]: Name: keywords"
+            html_content += f"- [{colorize_text(risk_level, risk_color)}]: {escape_html(name)}: "
+            
+            # Show keywords exactly like terminal
+            keyword_texts = []
+            for kw in keywords[:5]:  # Show first 5
+                keyword_text = kw.get('keyword', '')
+                matched_text = kw.get('matched_text', keyword_text)
+                if kw.get('exact_match'):
+                    keyword_texts.append(f'"{keyword_text}"')
+                else:
+                    keyword_texts.append(f'"{matched_text}"')
+            
+            html_content += ", ".join(keyword_texts)
+            if len(keywords) > 5:
+                html_content += f", +{len(keywords) - 5} more"
+            html_content += "\n"
     else:
-        html_content += '<div class="no-findings">No phishing content detected in email body</div>'
+        html_content += f"{colorize_text('No phishing phrases detected in email body.', 'green')}\n"
 
-    # Attachment Analysis Section
-    html_content += """
-        <h2>📎 Attachment Analysis</h2>
-"""
+    # Attachment Analysis Section - COMPLETE
+    html_content += format_section_header("ATTACHMENT ANALYSIS")
     
     if attachment_results and len(attachment_results) > 0:
-        html_content += f'<p><strong>Found {len(attachment_results)} attachment{"s" if len(attachment_results) != 1 else ""}:</strong></p>'
+        html_content += f"Found {colorize_text(str(len(attachment_results)), 'blue')} attachment{'s' if len(attachment_results) != 1 else ''}:\n\n"
         
         for i, attachment in enumerate(attachment_results, 1):
             filename = attachment.get('filename', f'attachment_{i}')
-            file_size = attachment.get('size', 0)
+            content_type = attachment.get('content_type', 'unknown')
+            size = attachment.get('size', 0)
             file_hash = attachment.get('hash', 'N/A')
-            detected_type = attachment.get('detected_type', 'Unknown')
-            is_spoofed = attachment.get('is_spoofed', False)
-            threat_level = attachment.get('threat_level', 'low')
+            detected_type = attachment.get('detected_type')
             vt_verdict = attachment.get('vt_verdict', 'unchecked')
             vt_comment = attachment.get('vt_comment', '')
-            qr_analysis = attachment.get('qr_analysis', {})
+            threat_level = attachment.get('threat_level', 'low')
+            is_spoofed = attachment.get('is_spoofed', False)
+            spoof_description = attachment.get('spoof_description', '')
             
-            # Format file size
-            if file_size > 0:
-                if file_size >= 1024*1024:
-                    size_str = f"{file_size / (1024*1024):.1f} MB"
-                elif file_size >= 1024:
-                    size_str = f"{file_size / 1024:.1f} KB"
-                else:
-                    size_str = f"{file_size} B"
+            # Attachment header exactly like terminal
+            html_content += f"{colorize_text(f'Attachment {i}:', 'blue')}\n"
+            html_content += f"- Filename: {colorize_text(escape_html(filename), 'yellow')}\n"
+            
+            # Type with detected type info
+            if detected_type and detected_type != 'unknown':
+                type_info = f"{content_type} (detected: {detected_type.upper()})"
             else:
-                size_str = "0 B"
+                type_info = content_type
+            html_content += f"- Type: {escape_html(type_info)}\n"
             
-            html_content += f'<div class="finding-item"><h3>Attachment {i}: {escape_html(filename)}</h3>'
-            html_content += f'<p><strong>Size:</strong> {size_str}</p>'
-            html_content += f'<p><strong>Detected Type:</strong> {escape_html(str(detected_type))}</p>'
+            # Size
+            size_str = safe_format_file_size(size)
+            html_content += f"- Size: {size_str}\n"
             
-            if file_hash != 'N/A':
+            # SHA256 with color coding by verdict
+            if file_hash != "N/A":
                 display_hash = apply_export_defanging(file_hash, use_defanged)
-                html_content += f'<p><strong>SHA256:</strong> <div class="hash-text">{escape_html(display_hash)}</div></p>'
+                hash_color = {
+                    'malicious': 'red', 'suspicious': 'yellow', 'benign': 'green',
+                    'unknown': 'orange', 'unchecked': 'orange'
+                }.get(vt_verdict, 'orange')
+                html_content += f"- SHA256: {colorize_text(escape_html(display_hash), hash_color)}\n"
             
-            # VirusTotal verdict
-            # Continuing from where the previous artifact left off...
-
-            # VirusTotal verdict
-            if vt_verdict == 'malicious':
-                html_content += f'<p><strong>VirusTotal:</strong> <span class="malicious">{vt_verdict.upper()}</span> - {escape_html(vt_comment)}</p>'
-            elif vt_verdict == 'suspicious':
-                html_content += f'<p><strong>VirusTotal:</strong> <span class="suspicious">{vt_verdict.upper()}</span> - {escape_html(vt_comment)}</p>'
-            elif vt_verdict == 'benign':
-                html_content += f'<p><strong>VirusTotal:</strong> <span class="benign">{vt_verdict.upper()}</span> - {escape_html(vt_comment)}</p>'
-            else:
-                html_content += f'<p><strong>VirusTotal:</strong> <span class="unchecked">{vt_verdict.upper()}</span></p>'
+            # VirusTotal verdict with colors
+            verdict_color = {
+                'malicious': 'red', 'suspicious': 'yellow', 'benign': 'green',
+                'unknown': 'orange', 'unchecked': 'orange'
+            }.get(vt_verdict, 'orange')
+            html_content += f"- VirusTotal: {colorize_text(vt_verdict.upper(), verdict_color)} ({escape_html(vt_comment)})\n"
             
-            # Spoofing detection
+            html_content += "\n"
+            
+            # Content analysis if available
+            content_analysis = attachment.get('attachment_content_analysis', {})
+            if content_analysis and content_analysis.get('text_extracted'):
+                text_length = content_analysis.get('text_length', 0)
+                html_content += f"{colorize_text('Text extracted:', 'blue')} {text_length} characters\n"
+                
+                # URL analysis in content
+                url_analysis = content_analysis.get('url_analysis', {})
+                if url_analysis and url_analysis.get('results'):
+                    total_urls = url_analysis.get('urls_found', 0)
+                    total_domains = url_analysis.get('domains_found', 0)
+                    malicious_count = url_analysis.get('malicious_count', 0)
+                    suspicious_count = url_analysis.get('suspicious_count', 0)
+                    
+                    html_content += f"- URLs in content: {total_urls} URL{'s' if total_urls != 1 else ''} across {total_domains} domain{'s' if total_domains != 1 else ''}\n"
+                    
+                    if malicious_count > 0:
+                        html_content += f"- {colorize_text(f'{malicious_count} malicious domain' + ('s' if malicious_count != 1 else '') + ' detected!', 'red')}\n"
+                    if suspicious_count > 0:
+                        html_content += f"- {colorize_text(f'{suspicious_count} suspicious domain' + ('s' if suspicious_count != 1 else '') + ' detected', 'orange')}\n"
+            
+            # Spoofing detection with threat levels
             if is_spoofed:
-                spoof_desc = attachment.get('spoof_description', 'File extension spoofing detected')
                 if threat_level == 'critical':
-                    html_content += f'<p><strong>⚠️ CRITICAL THREAT:</strong> <span class="critical">{escape_html(spoof_desc)}</span></p>'
+                    html_content += f"  {colorize_text('CRITICAL THREAT:', 'red')} {escape_html(spoof_description)}\n"
                 elif threat_level == 'high':
-                    html_content += f'<p><strong>⚠️ HIGH RISK SPOOFING:</strong> <span class="high">{escape_html(spoof_desc)}</span></p>'
+                    html_content += f"  {colorize_text('HIGH RISK SPOOFING:', 'red')} {escape_html(spoof_description)}\n"
                 else:
-                    html_content += f'<p><strong>⚠️ SPOOFING ALERT:</strong> <span class="medium">{escape_html(spoof_desc)}</span></p>'
+                    html_content += f"  {colorize_text('SPOOFING ALERT:', 'orange')} {escape_html(spoof_description)}\n"
+                html_content += "\n"
             
             # QR Code analysis
+            qr_analysis = attachment.get('qr_analysis', {})
             if qr_analysis and qr_analysis.get('qr_found'):
                 qr_results = qr_analysis.get('qr_results', [])
-                html_content += f'<p><strong>🔍 QR Code Analysis:</strong> Found {len(qr_results)} QR code{"s" if len(qr_results) != 1 else ""}</p><ul>'
+                html_content += f"{colorize_text('QR Code Detected! Details:', 'red')}\n"
                 
                 for j, qr in enumerate(qr_results, 1):
                     if 'url' in qr:
@@ -667,103 +598,269 @@ def generate_html_report(email_file_path, file_type, use_defanged=False):
                         page = qr.get('page', 1)
                         
                         display_url = apply_export_defanging(url, use_defanged)
-                        location_text = f"QR {j} (Page {page})" if page > 1 else f"QR {j}"
+                        location_text = f"QR {j} (Page {page}) Destination:" if page > 1 else f"QR {j} Destination:"
+                        verdict_color = {'malicious': 'red', 'suspicious': 'yellow', 'benign': 'green', 'unchecked': 'orange'}.get(verdict, 'white')
                         
-                        if verdict == 'malicious':
-                            html_content += f'<li><strong>{location_text}:</strong> <span class="malicious">{escape_html(display_url)}</span> - <span class="malicious">MALICIOUS</span> ({escape_html(comment)})</li>'
-                        elif verdict == 'suspicious':
-                            html_content += f'<li><strong>{location_text}:</strong> <span class="suspicious">{escape_html(display_url)}</span> - <span class="suspicious">SUSPICIOUS</span> ({escape_html(comment)})</li>'
-                        elif verdict == 'benign':
-                            html_content += f'<li><strong>{location_text}:</strong> <span class="benign">{escape_html(display_url)}</span> - <span class="benign">BENIGN</span> ({escape_html(comment)})</li>'
-                        else:
-                            html_content += f'<li><strong>{location_text}:</strong> <span class="unchecked">{escape_html(display_url)}</span> - <span class="unchecked">UNCHECKED</span></li>'
-                    else:
-                        # Non-URL QR code
-                        data = qr.get('data', 'No data')
-                        qr_type = qr.get('type', 'Unknown')
-                        page = qr.get('page', 1)
-                        location_text = f"QR {j} (Page {page})" if page > 1 else f"QR {j}"
-                        html_content += f'<li><strong>{location_text}:</strong> {escape_html(data)} (Type: {escape_html(qr_type)})</li>'
-                
-                html_content += '</ul>'
+                        html_content += f"- {location_text} {colorize_text(escape_html(display_url), 'yellow')}\n"
+                        html_content += f"- Verdict: {colorize_text(verdict.upper(), verdict_color)} ({escape_html(comment)})\n"
+                html_content += "\n"
             
-            # Content analysis (if available)
+            # Risk Level assessment exactly like terminal
+            final_risk_level = attachment.get('final_risk_level', 'unknown')
+            final_risk_reason = attachment.get('final_risk_reason', '')
+            
+            html_content += "Risk Level:\n"
+            
+            # Determine QR status
+            # Continuing from where the previous artifact left off...
+
+            # Determine QR status
+            qr_status = ""
+            if qr_analysis and qr_analysis.get('qr_found'):
+                qr_results = qr_analysis.get('qr_results', [])
+                malicious_qr = any(qr.get('verdict') == 'malicious' for qr in qr_results if isinstance(qr, dict))
+                suspicious_qr = any(qr.get('verdict') == 'suspicious' for qr in qr_results if isinstance(qr, dict))
+                
+                if malicious_qr:
+                    qr_status = " (Malicious QR code detected)"
+                elif suspicious_qr:
+                    qr_status = " (Suspicious QR code detected)"
+                else:
+                    qr_status = " (QR code detected)"
+            
+            # Risk level with proper colors
+            risk_color = {
+                'critical': 'red',
+                'high': 'red',
+                'medium': 'orange',
+                'low': 'green',
+                'unknown': 'orange'
+            }.get(final_risk_level, 'orange')
+            
+            html_content += f"- {colorize_text(final_risk_level.upper() + qr_status, risk_color)}\n"
+            
+            # Show specific risk factors
             content_analysis = attachment.get('attachment_content_analysis', {})
+            risk_factors = []
+            
+            # Get content analysis risks
             if content_analysis and content_analysis.get('findings'):
                 findings = content_analysis['findings']
-                risk_score = content_analysis.get('risk_score', 0)
-                
-                html_content += f'<p><strong>📄 Content Analysis:</strong> Risk Score {risk_score}/100</p><ul>'
-                for finding in findings.values():
-                    name = finding.get('name', 'Unknown')
-                    risk_level = finding.get('risk_level', 'LOW')
-                    keyword_count = finding.get('keyword_count', 0)
-                    
-                    if risk_level == 'HIGH':
-                        html_content += f'<li><span class="critical">{escape_html(name)}</span> ({keyword_count} indicators)</li>'
-                    elif risk_level == 'MEDIUM':
-                        html_content += f'<li><span class="high">{escape_html(name)}</span> ({keyword_count} indicators)</li>'
-                    else:
-                        html_content += f'<li><span class="medium">{escape_html(name)}</span> ({keyword_count} indicators)</li>'
-                html_content += '</ul>'
+                high_risk_findings = [f for f in findings.values() if f.get('risk_level') == 'HIGH']
+                if high_risk_findings:
+                    for finding in high_risk_findings[:2]:  # Show first 2
+                        risk_factors.append(f"PHISHING CONTENT: {finding.get('name', 'Unknown')}")
             
-            html_content += '</div>'
-    else:
-        html_content += '<div class="no-findings">No attachments found in this email</div>'
-
-    # Benign Findings Section
-    html_content += """
-        <h2>✅ Benign Findings</h2>
-"""
-    
-    benign_findings = []
-    
-    # Collect benign findings from various analyses
-    if ip_results:
-        benign_ip_count = len([ip for ip in ip_results if ip[2] == 'benign'])
-        if benign_ip_count > 0:
-            benign_findings.append(f"{benign_ip_count} IP address{'es' if benign_ip_count != 1 else ''} verified as benign")
-    
-    if url_results:
-        benign_url_count = len([r for r in url_results if r.get('verdict') == 'benign'])
-        if benign_url_count > 0:
-            benign_findings.append(f"{benign_url_count} domain{'s' if benign_url_count != 1 else ''} verified as benign")
-    
-    if attachment_results:
-        benign_attachment_count = len([a for a in attachment_results if a.get('vt_verdict') == 'benign'])
-        if benign_attachment_count > 0:
-            benign_findings.append(f"{benign_attachment_count} attachment{'s' if benign_attachment_count != 1 else ''} verified as benign")
-    
-    # Add authentication successes if available
-    try:
-        from . import parser
-        msg_obj, _ = parser.load_email(email_file_path)
-        auth_results = msg_obj.get('Authentication-Results', '').lower()
+            # Get spoofing risks
+            if is_spoofed:
+                if threat_level == 'critical':
+                    risk_factors.append(f"CRITICAL SPOOFING: {spoof_description}")
+                elif threat_level == 'high':
+                    risk_factors.append(f"HIGH RISK SPOOFING: {spoof_description}")
+                else:
+                    risk_factors.append(f"EXTENSION SPOOFING: {spoof_description}")
+            
+            # Get other risks
+            if final_risk_reason and not qr_status and not is_spoofed:
+                if not any(factor in final_risk_reason for factor in ['QR code', 'EXTENSION SPOOFING', 'CRITICAL SPOOFING']):
+                    risk_factors.append(final_risk_reason)
+            
+            # Display risk factors
+            for factor in risk_factors:
+                if factor.startswith('CRITICAL'):
+                    html_content += f"- {colorize_text(escape_html(factor), 'red')}\n"
+                elif factor.startswith('MALICIOUS') or factor.startswith('HIGH RISK'):
+                    html_content += f"- {colorize_text(escape_html(factor), 'red')}\n"
+                elif factor.startswith('PHISHING CONTENT'):
+                    html_content += f"- {colorize_text(escape_html(factor), 'red')}\n"
+                elif 'suspicious' in factor.lower():
+                    html_content += f"- {colorize_text(escape_html(factor), 'orange')}\n"
+                else:
+                    html_content += f"- {escape_html(factor)}\n"
+            
+            # Add content risk score if available
+            if content_analysis and content_analysis.get('risk_score', 0) > 0:
+                content_risk_score = content_analysis['risk_score']
+                score_color = 'red' if content_risk_score >= 70 else 'orange' if content_risk_score >= 40 else 'yellow'
+                html_content += f"- Content risk score: {colorize_text(f'{content_risk_score}/100', score_color)}\n"
+            
+            html_content += "\n"
         
-        if 'spf=pass' in auth_results:
-            benign_findings.append("SPF authentication passed")
-        if 'dkim=pass' in auth_results:
-            benign_findings.append("DKIM authentication passed")
-        if 'dmarc=pass' in auth_results:
-            benign_findings.append("DMARC authentication passed")
+        # Summary assessment exactly like terminal
+        try:
+            final_high_risk_count = sum(1 for r in attachment_results if r.get('final_risk_level') == 'high')
+            final_critical_count = sum(1 for r in attachment_results if r.get('final_risk_level') == 'critical')
+            malicious_count = sum(1 for r in attachment_results if r.get('vt_verdict') == 'malicious')
+            suspicious_count = sum(1 for r in attachment_results if r.get('vt_verdict') == 'suspicious')
+            spoofed_count = sum(1 for r in attachment_results if r.get('is_spoofed'))
             
-    except Exception:
-        pass
-    
-    if benign_findings:
-        html_content += '<div class="finding-item"><ul>'
-        for finding in benign_findings:
-            html_content += f'<li class="benign">{escape_html(finding)}</li>'
-        html_content += '</ul></div>'
+            # Count QR codes
+            total_qr_count = 0
+            for r in attachment_results:
+                qr_analysis = r.get('qr_analysis', {})
+                if qr_analysis and qr_analysis.get('qr_found'):
+                    qr_results = qr_analysis.get('qr_results', [])
+                    total_qr_count += len(qr_results)
+            
+            qr_codes_found = total_qr_count > 0
+            
+            # Check for phishing content in attachments
+            phishing_files_count = sum(1 for r in attachment_results 
+                                     if r.get('attachment_content_analysis', {}).get('findings'))
+            malicious_url_files = sum(1 for r in attachment_results 
+                                    if r.get('attachment_content_analysis', {}).get('url_analysis', {}).get('malicious_count', 0) > 0)
+            
+            # Determine overall threat level exactly like terminal
+            threat_factors = []
+            summary_color = "green"  # Default to safe
+            
+            # HIGHEST PRIORITY: Critical threats
+            if final_critical_count > 0:
+                threat_factors.append(f"{final_critical_count} CRITICAL threat{'s' if final_critical_count != 1 else ''} (spoofed executables/PDFs)")
+                summary_color = "red"
+            
+            if malicious_count > 0:
+                threat_factors.append(f"{malicious_count} malicious file{'s' if malicious_count != 1 else ''} (VirusTotal)")
+                if summary_color != "red":
+                    summary_color = "red"
+            
+            if malicious_url_files > 0:
+                threat_factors.append(f"{malicious_url_files} file{'s' if malicious_url_files != 1 else ''} with malicious URLs")
+                if summary_color not in ["red"]:
+                    summary_color = "red"
+            
+            if spoofed_count > 0:
+                threat_factors.append(f"{spoofed_count} spoofed file{'s' if spoofed_count != 1 else ''}")
+                if summary_color not in ["red"]:
+                    summary_color = "red"
+            
+            if phishing_files_count > 0:
+                threat_factors.append(f"{phishing_files_count} file{'s' if phishing_files_count != 1 else ''} with phishing content")
+                if summary_color not in ["red"]:
+                    summary_color = "red"
+            
+            if qr_codes_found:
+                if total_qr_count == 1:
+                    threat_factors.append("QR code detected")
+                else:
+                    threat_factors.append(f"{total_qr_count} QR codes detected")
+                if summary_color not in ["red"]:
+                    summary_color = "red"
+            
+            if suspicious_count > 0:
+                threat_factors.append(f"{suspicious_count} suspicious file{'s' if suspicious_count != 1 else ''} (VirusTotal)")
+                if summary_color not in ["red"]:
+                    summary_color = "orange"
+            
+            if final_high_risk_count > 0 and summary_color not in ["red", "orange"]:
+                summary_color = "orange"
+            
+            # Generate summary text exactly like terminal
+            if threat_factors:
+                if final_critical_count > 0:
+                    summary_text = f"CRITICAL SECURITY THREAT: {threat_factors[0]}"
+                    if len(threat_factors) > 1:
+                        summary_text += f" + {len(threat_factors) - 1} more threat{'s' if len(threat_factors) - 1 != 1 else ''}!"
+                    else:
+                        summary_text += "!"
+                elif len(threat_factors) == 1:
+                    summary_text = f"HIGH RISK: {threat_factors[0]}!"
+                elif len(threat_factors) == 2:
+                    summary_text = f"HIGH RISK: {threat_factors[0]} and {threat_factors[1]}!"
+                else:
+                    summary_text = f"HIGH RISK: {threat_factors[0]}, {threat_factors[1]}, and {len(threat_factors) - 2} more threat{'s' if len(threat_factors) - 2 != 1 else ''}!"
+            else:
+                summary_text = "Attachments appear benign, but verify manually."
+                summary_color = "green"
+            
+            html_content += f"{colorize_text('ATTACHMENT ASSESSMENT:', 'blue')} {colorize_text(summary_text, summary_color)}\n"
+            
+        except Exception as e:
+            html_content += f"{colorize_text(f'Error generating summary assessment: {e}', 'red')}\n"
+        
     else:
-        html_content += '<div class="no-findings">No specific benign indicators identified</div>'
+        html_content += f"{colorize_text('No attachments found in this email.', 'green')}\n"
+
+    # Executive Summary if available
+    if any([url_results, body_results, attachment_results]):
+        html_content += format_section_header("EXECUTIVE FINDINGS REPORT")
+        
+        # Use the existing comprehensive findings function
+        try:
+            main_module = sys.modules.get('__main__') or sys.modules.get('phishalyzer')
+            if main_module and hasattr(main_module, 'compile_comprehensive_findings'):
+                comprehensive_findings = main_module.compile_comprehensive_findings()
+                
+                # Critical Threats Section
+                if comprehensive_findings.get('critical_threats'):
+                    html_content += f"{colorize_text('CRITICAL SECURITY THREATS:', 'red')}\n"
+                    for threat in comprehensive_findings['critical_threats']:
+                        html_content += f"• {escape_html(threat)}\n"
+                    html_content += "\n"
+                
+                # High Risk Indicators Section
+                if comprehensive_findings.get('high_risk_indicators'):
+                    html_content += f"{colorize_text('HIGH RISK INDICATORS:', 'red')}\n"
+                    for indicator in comprehensive_findings['high_risk_indicators']:
+                        html_content += f"• {escape_html(indicator)}\n"
+                    html_content += "\n"
+                
+                # Suspicious Activity Section
+                if comprehensive_findings.get('suspicious_activity'):
+                    html_content += f"{colorize_text('SUSPICIOUS ACTIVITY:', 'orange')}\n"
+                    for activity in comprehensive_findings['suspicious_activity']:
+                        html_content += f"• {escape_html(activity)}\n"
+                    html_content += "\n"
+                
+                # Manual Verification Required Section
+                if comprehensive_findings.get('manual_verification_required'):
+                    html_content += f"{colorize_text('ITEMS REQUIRING MANUAL VERIFICATION:', 'yellow')}\n"
+                    for item in comprehensive_findings['manual_verification_required']:
+                        html_content += f"• {escape_html(item)}\n"
+                    html_content += "\n"
+                
+                # Authentication & Infrastructure Concerns Section
+                if comprehensive_findings.get('authentication_infrastructure_concerns'):
+                    html_content += f"{colorize_text('AUTHENTICATION & INFRASTRUCTURE CONCERNS:', 'orange')}\n"
+                    for concern in comprehensive_findings['authentication_infrastructure_concerns']:
+                        html_content += f"• {escape_html(concern)}\n"
+                    html_content += "\n"
+                
+                # Final Verdict Section
+                if hasattr(main_module, 'determine_final_verdict'):
+                    verdict, reasons = main_module.determine_final_verdict(comprehensive_findings)
+                    
+                    # Color the verdict based on risk level
+                    if "CRITICAL" in verdict:
+                        verdict_color = "red"
+                    elif "HIGH" in verdict:
+                        verdict_color = "red"
+                    elif "MEDIUM" in verdict:
+                        verdict_color = "orange"
+                    else:
+                        verdict_color = "yellow"
+                    
+                    html_content += f"{colorize_text('FINAL VERDICT:', 'blue')} {colorize_text(verdict, verdict_color)}\n"
+                    
+                    for reason in reasons:
+                        html_content += f"• {escape_html(reason)}\n"
+                
+                # Show nothing found message only if truly nothing was found
+                total_findings = (len(comprehensive_findings.get('critical_threats', [])) + 
+                                len(comprehensive_findings.get('high_risk_indicators', [])) + 
+                                len(comprehensive_findings.get('suspicious_activity', [])) + 
+                                len(comprehensive_findings.get('manual_verification_required', [])) + 
+                                len(comprehensive_findings.get('authentication_infrastructure_concerns', [])))
+                
+                if total_findings == 0:
+                    html_content += f"\n{colorize_text('No significant security concerns identified in automated analysis.', 'green')}\n"
+                    html_content += f"{colorize_text('Email appears to be legitimate based on available threat intelligence.', 'green')}\n"
+                    
+        except Exception as e:
+            html_content += f"{colorize_text(f'Error generating executive summary: {e}', 'red')}\n"
 
     # Close HTML
     html_content += """
-        <hr style="margin-top: 40px; border: 1px solid #bdc3c7;">
-        <p style="text-align: center; color: #7f8c8d; font-size: 12px; margin-top: 20px;">
-            Report generated by Phishalyzer - Email Security Analysis Tool
-        </p>
     </div>
 </body>
 </html>"""
@@ -777,13 +874,13 @@ def prompt_export_format():
         while True:
             if COMPATIBLE_OUTPUT:
                 output.print("\n[blue]Export Format:[/blue]")
-                output.print("[blue]1:[/blue] HTML Report")
+                output.print("[blue]1:[/blue] Terminal-style HTML Report")
                 output.print("[blue]2:[/blue] Markdown Report (coming soon)")
                 output.print("[blue]3:[/blue] Plaintext Report (coming soon)")
                 output.print("[blue]4:[/blue] Return to main menu")
             else:
                 print("\nExport Format:")
-                print("1: HTML Report")
+                print("1: Terminal-style HTML Report")
                 print("2: Markdown Report (coming soon)")
                 print("3: Plaintext Report (coming soon)")
                 print("4: Return to main menu")
@@ -791,7 +888,7 @@ def prompt_export_format():
             try:
                 choice = input("Enter option [1-4]: ").strip()
                 if choice in ['1']:
-                    format_type = 'html'
+                    format_type = 'terminal-html'
                     break
                 elif choice in ['2', '3']:
                     if COMPATIBLE_OUTPUT:
@@ -844,7 +941,7 @@ def prompt_export_format():
         return None, None
 
 def export_analysis_report():
-    """Main function to export analysis report."""
+    """Main function to export analysis report in terminal style."""
     try:
         # Check if analysis has been run
         import sys
@@ -880,19 +977,19 @@ def export_analysis_report():
             return  # User cancelled
         
         # Generate report
-        if format_type == 'html':
+        if format_type == 'terminal-html':
             if COMPATIBLE_OUTPUT:
-                print_status("Generating HTML report...", "info")
+                print_status("Generating terminal-style HTML report...", "info")
             else:
-                print("Generating HTML report...")
+                print("Generating terminal-style HTML report...")
             
-            html_content = generate_html_report(file_path, file_type, use_defanged)
+            html_content = generate_comprehensive_terminal_html(file_path, file_type, use_defanged)
             
             # Generate filename
             email_filename = os.path.basename(file_path)
             sanitized_name = sanitize_filename(email_filename)
             timestamp = datetime.datetime.now().strftime("%Y.%m.%d")
-            base_filename = f"{sanitized_name}_analysis_report_{timestamp}"
+            base_filename = f"{sanitized_name}_terminal_report_{timestamp}"
             
             # Get desktop path and create unique filename
             desktop_path = get_desktop_path()
@@ -904,7 +1001,7 @@ def export_analysis_report():
                     f.write(html_content)
                 
                 if COMPATIBLE_OUTPUT:
-                    print_status(f"HTML report saved successfully!", "success")
+                    print_status(f"Terminal-style HTML report saved successfully!", "success")
                     output.print(f"[blue]File location:[/blue] {output_path}")
                     
                     # Show file size
@@ -915,7 +1012,7 @@ def export_analysis_report():
                         size_str = f"{file_size} B"
                     output.print(f"[blue]File size:[/blue] {size_str}")
                 else:
-                    print(f"HTML report saved successfully!")
+                    print(f"Terminal-style HTML report saved successfully!")
                     print(f"File location: {output_path}")
                     
                     file_size = os.path.getsize(output_path)
@@ -940,18 +1037,6 @@ def export_analysis_report():
         
     except Exception as e:
         if COMPATIBLE_OUTPUT:
-            print_status(f"Error generating export report: {e}", "error")
+            print_status(f"Error generating terminal-style export report: {e}", "error")
         else:
-            print(f"Error generating export report: {e}")
-
-# Add this function to update the main phishalyzer.py file to track the analyzed file
-def track_analyzed_file(file_path, file_type):
-    """Store the analyzed file information for export purposes."""
-    try:
-        import sys
-        main_module = sys.modules.get('__main__') or sys.modules.get('phishalyzer')
-        if main_module:
-            setattr(main_module, 'last_analyzed_file_path', file_path)
-            setattr(main_module, 'last_analyzed_file_type', file_type)
-    except Exception:
-        pass
+            print(f"Error generating terminal-style export report: {e}")

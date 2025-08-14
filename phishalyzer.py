@@ -9,6 +9,12 @@ from analyzer import attachment_analyzer
 from analyzer import body_analyzer
 from analyzer import defanger
 
+try:
+    from analyzer import html_exporter
+    HTML_EXPORT_AVAILABLE = True
+except ImportError:
+    HTML_EXPORT_AVAILABLE = False
+
 # Import the universal output system
 try:
     from analyzer.compatible_output import output, print_header, print_status
@@ -27,6 +33,10 @@ last_url_analysis_results = None
 last_received_hops = None
 last_body_analysis_results = None
 last_attachment_results = None
+last_analyzed_file_path = None
+last_analyzed_file_type = None
+last_ip_analysis_results = None
+last_header_analysis = None
 
 def check_defang_mode():
     """Debug function to check current defang mode"""
@@ -455,6 +465,7 @@ def print_current_config(vt_api_key, output_mode):
 def run_analysis(file_path, vt_api_key):
     """Run complete email analysis with comprehensive error handling."""
     global last_url_analysis_results, last_received_hops, last_body_analysis_results, last_attachment_results
+    global last_analyzed_file_path, last_analyzed_file_type, last_ip_analysis_results, last_header_analysis
     
     try:
         # Reset previous results
@@ -462,6 +473,11 @@ def run_analysis(file_path, vt_api_key):
         last_received_hops = None
         last_body_analysis_results = None
         last_attachment_results = None
+        last_ip_analysis_results = None
+        last_header_analysis = None
+        
+        # Store analyzed file info for export
+        last_analyzed_file_path = file_path
         
         # Validate file path
         if not file_path or not file_path.strip():
@@ -507,6 +523,7 @@ def run_analysis(file_path, vt_api_key):
         # Parse email file
         try:
             msg_obj, filetype = parser.load_email(file_path)
+            last_analyzed_file_type = filetype  # Store file type
             print(f"Detected file type: {filetype}")
         except Exception as e:
             if COMPATIBLE_OUTPUT:
@@ -530,9 +547,44 @@ def run_analysis(file_path, vt_api_key):
             print(f"Subject: [Unable to read - {e}]")
             print()
 
-        # Header analysis
+        # Header analysis with structured storage
         try:
             print_section_header("EMAIL HEADER ANALYSIS")
+            # Store basic header analysis results
+            last_header_analysis = {
+                'malicious_factors': [],
+                'warning_factors': [],
+                'benign_factors': []
+            }
+            
+            # Extract authentication results for structured storage
+            try:
+                auth_results = msg_obj.get('Authentication-Results', '').lower() if msg_obj else ''
+                if 'spf=fail' in auth_results or 'spf=softfail' in auth_results:
+                    last_header_analysis['malicious_factors'].append('SPF failure detected')
+                elif 'spf=pass' in auth_results:
+                    last_header_analysis['benign_factors'].append('SPF authentication passed')
+                    
+                if 'dkim=fail' in auth_results:
+                    last_header_analysis['malicious_factors'].append('DKIM failure detected')
+                elif 'dkim=pass' in auth_results:
+                    last_header_analysis['benign_factors'].append('DKIM authentication passed')
+                    
+                if 'dmarc=fail' in auth_results:
+                    last_header_analysis['malicious_factors'].append('DMARC failure detected')
+                elif 'dmarc=pass' in auth_results:
+                    last_header_analysis['benign_factors'].append('DMARC authentication passed')
+                    
+                # Check Reply-To presence
+                reply_to = msg_obj.get('Reply-To', '') if msg_obj else ''
+                if not reply_to or not reply_to.strip():
+                    last_header_analysis['warning_factors'].append('Reply-To header missing')
+                else:
+                    last_header_analysis['benign_factors'].append('Reply-To header present')
+                    
+            except Exception:
+                pass
+            
             header_analyzer.analyze_headers(msg_obj)
         except Exception as e:
             if COMPATIBLE_OUTPUT:
@@ -545,7 +597,7 @@ def run_analysis(file_path, vt_api_key):
         # IP analysis
         try:
             print_section_header("IP ADDRESS ANALYSIS")
-            ioc_extractor.analyze_ips(msg_obj, api_key=vt_api_key)
+            last_ip_analysis_results = ioc_extractor.analyze_ips(msg_obj, api_key=vt_api_key)
         except Exception as e:
             if COMPATIBLE_OUTPUT:
                 print_status(f"Error during IP analysis: {e}", "error")
@@ -1411,7 +1463,6 @@ def main():
                 if last_url_analysis_results and isinstance(last_url_analysis_results, list):
                     has_url_findings = True
                 if last_attachment_results and isinstance(last_attachment_results, list):
-                    # Filter valid attachments and check for URL analysis
                     valid_attachments = [a for a in last_attachment_results if a is not None and isinstance(a, dict)]
                     if any(a.get('attachment_content_analysis', {}).get('url_analysis', {}).get('results') for a in valid_attachments):
                         has_url_findings = True
@@ -1419,24 +1470,23 @@ def main():
                 if has_url_findings:
                     menu_options.append(("4", "View URL findings"))
                 
-                # Check body analysis - FIXED with better None checking
+                # Check body analysis
                 if last_body_analysis_results and isinstance(last_body_analysis_results, dict):
                     next_num = str(len(menu_options) + 4)
                     menu_options.append((next_num, "View body analysis details"))
                 
-                # Check received hops - FIXED with better None checking
+                # Check received hops
                 if last_received_hops and isinstance(last_received_hops, list):
                     next_num = str(len(menu_options) + 4)
                     menu_options.append((next_num, "View email routing hops"))
                 
-                # Add executive summary option if any analysis has been run - FIXED with proper None checking
+                # Add executive summary option if any analysis has been run
                 has_any_results = False
                 if last_url_analysis_results and isinstance(last_url_analysis_results, list):
                     has_any_results = True
                 elif last_body_analysis_results and isinstance(last_body_analysis_results, dict):
                     has_any_results = True
                 elif last_attachment_results and isinstance(last_attachment_results, list):
-                    # Check for valid attachments
                     valid_attachments = [a for a in last_attachment_results if a is not None and isinstance(a, dict)]
                     if valid_attachments:
                         has_any_results = True
@@ -1444,6 +1494,11 @@ def main():
                 if has_any_results:
                     next_num = str(len(menu_options) + 4)
                     menu_options.append((next_num, "Generate executive summary"))
+                
+                # NEW: Add export option if analysis has been run and export is available
+                if has_any_results and HTML_EXPORT_AVAILABLE:
+                    next_num = str(len(menu_options) + 4)
+                    menu_options.append((next_num, "Export findings"))
 
                 exit_num = str(len(menu_options) + 4)
                 max_option = int(exit_num)
@@ -1488,11 +1543,11 @@ def main():
                     else:
                         file_path = file_path_arg
 
-                    # Refresh API key each run to respect possible user changes
+                    # Refresh API key each run
                     try:
                         vt_api_key = get_saved_api_key()
                     except Exception:
-                        pass  # Keep existing key if reload fails
+                        pass
                     
                     run_analysis(file_path, vt_api_key)
                     
@@ -1559,6 +1614,21 @@ def main():
                                 print_status(f"Error generating executive summary: {e}", "error")
                             else:
                                 print(f"Error generating executive summary: {e}")
+                    elif selected_option == "Export findings":
+                        # NEW: Handle export option
+                        try:
+                            if HTML_EXPORT_AVAILABLE:
+                                html_exporter.export_analysis_report()
+                            else:
+                                if COMPATIBLE_OUTPUT:
+                                    print_status("Export functionality not available. Check html_exporter module.", "error")
+                                else:
+                                    print("Export functionality not available. Check html_exporter module.")
+                        except Exception as e:
+                            if COMPATIBLE_OUTPUT:
+                                print_status(f"Error in export functionality: {e}", "error")
+                            else:
+                                print(f"Error in export functionality: {e}")
                     elif choice == exit_num:
                         print("Exiting.")
                         break

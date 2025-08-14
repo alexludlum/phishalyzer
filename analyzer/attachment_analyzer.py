@@ -1279,96 +1279,209 @@ def analyze_attachments(msg_obj, api_key):
         
         # ENHANCED: Summary assessment with comprehensive findings and CRITICAL threat support
         try:
-            final_high_risk_count = sum(1 for r in results if r.get('final_risk_level') == 'high')
-            final_critical_count = sum(1 for r in results if r.get('final_risk_level') == 'critical')
-            malicious_count = sum(1 for r in results if r.get('vt_verdict') == 'malicious')
-            suspicious_count = sum(1 for r in results if r.get('vt_verdict') == 'suspicious')
-            spoofed_count = sum(1 for r in results if r.get('is_spoofed'))
-            qr_codes_found = total_qr_count > 0
-            
-            # Check for phishing content in attachments
-            phishing_files_count = sum(1 for r in results if r.get('attachment_content_analysis', {}).get('findings'))
-            malicious_url_files = sum(1 for r in results if r.get('attachment_content_analysis', {}).get('url_analysis', {}).get('malicious_count', 0) > 0)
-            suspicious_url_files = sum(1 for r in results if r.get('attachment_content_analysis', {}).get('url_analysis', {}).get('suspicious_count', 0) > 0)
-            
-            # Determine overall threat level with CRITICAL support
-            threat_factors = []
-            summary_color = "green"  # Default to safe
-            
-            # HIGHEST PRIORITY: Critical threats
-            if final_critical_count > 0:
-                threat_factors.append(f"{final_critical_count} CRITICAL threat{'s' if final_critical_count != 1 else ''} (spoofed executables/PDFs)")
-                summary_color = "red bold"
-            
-            if malicious_count > 0:
-                threat_factors.append(f"{malicious_count} malicious file{'s' if malicious_count != 1 else ''} (VirusTotal)")
-                if summary_color != "red bold":
-                    summary_color = "red"
-            
-            if malicious_url_files > 0:
-                threat_factors.append(f"{malicious_url_files} file{'s' if malicious_url_files != 1 else ''} with malicious URLs")
-                if summary_color not in ["red bold", "red"]:
-                    summary_color = "red"
-            
-            if spoofed_count > 0:
-                threat_factors.append(f"{spoofed_count} spoofed file{'s' if spoofed_count != 1 else ''}")
-                if summary_color not in ["red bold", "red"]:
-                    summary_color = "red"
-            
-            if phishing_files_count > 0:
-                threat_factors.append(f"{phishing_files_count} file{'s' if phishing_files_count != 1 else ''} with phishing content")
-                if summary_color not in ["red bold", "red"]:
-                    summary_color = "red"
-            
-            if qr_codes_found:
-                if total_qr_count == 1:
-                    threat_factors.append("QR code detected")
-                else:
-                    threat_factors.append(f"{total_qr_count} QR codes detected")
-                if summary_color not in ["red bold", "red"]:
-                    summary_color = "red"
-            
-            if suspicious_count > 0 or suspicious_url_files > 0:
+            def generate_security_conscious_assessment(results):
+                """
+                Generate security-conscious assessment that treats unchecked files as potential threats.
+                Prioritizes security over convenience when threat intelligence is unavailable.
+                """
+                # Filter out None results first
+                valid_results = [r for r in results if r is not None and isinstance(r, dict)]
+                
+                if not valid_results:
+                    return "No valid attachment results to assess.", "orange3", 0
+                
+                # Categorize results with security-first approach
+                critical_count = sum(1 for r in valid_results if r.get('final_risk_level') == 'critical')
+                high_count = sum(1 for r in valid_results if r.get('final_risk_level') == 'high')
+                malicious_count = sum(1 for r in valid_results if r.get('vt_verdict') == 'malicious')
+                suspicious_count = sum(1 for r in valid_results if r.get('vt_verdict') == 'suspicious')
+                spoofed_count = sum(1 for r in valid_results if r.get('is_spoofed'))
+                
+                # SECURITY-CONSCIOUS: Count unchecked files as potential threats
+                unchecked_count = sum(1 for r in valid_results if r.get('vt_verdict') in ['unchecked', 'unknown'])
+                
+                # Count unchecked executables safely
+                unchecked_executable_count = 0
+                unchecked_macro_count = 0
+                
+                for r in valid_results:
+                    if r.get('vt_verdict') in ['unchecked', 'unknown']:
+                        filename = r.get('filename', '')
+                        if filename and isinstance(filename, str):
+                            file_ext = filename.lower().split('.')[-1] if '.' in filename.lower() else ''
+                            
+                            if file_ext in {'exe', 'scr', 'bat', 'cmd', 'com', 'pif', 'vbs', 'js', 'jar', 'app'}:
+                                unchecked_executable_count += 1
+                            elif file_ext in {'doc', 'docx', 'docm', 'xls', 'xlsx', 'xlsm', 'ppt', 'pptx', 'pptm'}:
+                                unchecked_macro_count += 1
+                
+                # Count phishing content and QR codes safely
+                phishing_files_count = 0
+                malicious_url_files = 0
+                qr_codes_found = 0
+                
+                for r in valid_results:
+                    # Check for phishing content
+                    content_analysis = r.get('attachment_content_analysis')
+                    if content_analysis and isinstance(content_analysis, dict):
+                        if content_analysis.get('findings'):
+                            phishing_files_count += 1
+                        
+                        url_analysis = content_analysis.get('url_analysis', {})
+                        if isinstance(url_analysis, dict) and url_analysis.get('malicious_count', 0) > 0:
+                            malicious_url_files += 1
+                    
+                    # Check for QR codes
+                    qr_analysis = r.get('qr_analysis')
+                    if qr_analysis and isinstance(qr_analysis, dict) and qr_analysis.get('qr_found'):
+                        qr_codes_found += 1
+                
+                # Determine threat level with SECURITY-FIRST approach
+                threat_factors = []
+                summary_color = "orange3"  # Default to caution, not green
+                
+                # HIGHEST PRIORITY: Known threats
+                if critical_count > 0:
+                    threat_factors.append(f"{critical_count} CRITICAL threat{'s' if critical_count != 1 else ''} (spoofed executables/PDFs)")
+                    summary_color = "red bold"
+                
+                if malicious_count > 0:
+                    threat_factors.append(f"{malicious_count} confirmed malicious file{'s' if malicious_count != 1 else ''}")
+                    if summary_color != "red bold":
+                        summary_color = "red"
+                
+                if malicious_url_files > 0:
+                    threat_factors.append(f"{malicious_url_files} file{'s' if malicious_url_files != 1 else ''} with malicious URLs")
+                    if summary_color not in ["red bold", "red"]:
+                        summary_color = "red"
+                
+                # HIGH PRIORITY: Unchecked potentially dangerous files
+                if unchecked_executable_count > 0:
+                    threat_factors.append(f"{unchecked_executable_count} unchecked executable file{'s' if unchecked_executable_count != 1 else ''} (POTENTIAL MALWARE)")
+                    if summary_color not in ["red bold", "red"]:
+                        summary_color = "red"
+                
+                if unchecked_macro_count > 0:
+                    threat_factors.append(f"{unchecked_macro_count} unchecked macro-capable file{'s' if unchecked_macro_count != 1 else ''} (POTENTIAL MALWARE)")
+                    if summary_color not in ["red bold", "red"]:
+                        summary_color = "red"
+                
+                if spoofed_count > 0:
+                    threat_factors.append(f"{spoofed_count} spoofed file{'s' if spoofed_count != 1 else ''}")
+                    if summary_color not in ["red bold", "red"]:
+                        summary_color = "red"
+                
+                if phishing_files_count > 0:
+                    threat_factors.append(f"{phishing_files_count} file{'s' if phishing_files_count != 1 else ''} with phishing content")
+                    if summary_color not in ["red bold", "red"]:
+                        summary_color = "red"
+                
+                if qr_codes_found > 0:
+                    threat_factors.append(f"{qr_codes_found} file{'s' if qr_codes_found != 1 else ''} with QR codes detected")
+                    if summary_color not in ["red bold", "red"]:
+                        summary_color = "red"
+                
+                # MEDIUM PRIORITY: Other suspicious indicators
                 if suspicious_count > 0:
-                    threat_factors.append(f"{suspicious_count} suspicious file{'s' if suspicious_count != 1 else ''} (VirusTotal)")
-                if suspicious_url_files > 0:
-                    threat_factors.append(f"{suspicious_url_files} file{'s' if suspicious_url_files != 1 else ''} with suspicious URLs")
-                if summary_color not in ["red bold", "red"]:
+                    threat_factors.append(f"{suspicious_count} suspicious file{'s' if suspicious_count != 1 else ''}")
+                    if summary_color not in ["red bold", "red"]:
+                        summary_color = "orange3"
+                
+                if high_count > 0 and summary_color not in ["red bold", "red", "orange3"]:
                     summary_color = "orange3"
-            
-            if final_high_risk_count > 0 and summary_color not in ["red bold", "red", "orange3"]:
-                summary_color = "orange3"
-            
-            # Generate summary text with CRITICAL emphasis
-            if threat_factors:
-                if final_critical_count > 0:
+                
+                # SECURITY-CONSCIOUS: Warn about unchecked files even if they seem "normal"
+                remaining_unchecked = unchecked_count - unchecked_executable_count - unchecked_macro_count
+                if remaining_unchecked > 0:
+                    threat_factors.append(f"{remaining_unchecked} additional unchecked file{'s' if remaining_unchecked != 1 else ''} (threat intelligence unavailable)")
+                    if summary_color not in ["red bold", "red", "orange3"]:
+                        summary_color = "orange3"
+                
+                # Generate security-conscious summary text
+                if critical_count > 0 or malicious_count > 0:
                     summary_text = f"CRITICAL SECURITY THREAT: {threat_factors[0]}"
                     if len(threat_factors) > 1:
                         summary_text += f" + {len(threat_factors) - 1} more threat{'s' if len(threat_factors) - 1 != 1 else ''}!"
                     else:
                         summary_text += "!"
+                elif unchecked_executable_count > 0 or unchecked_macro_count > 0:
+                    summary_text = f"HIGH RISK: {threat_factors[0]} - MANUAL ANALYSIS REQUIRED!"
+                elif len(threat_factors) >= 2:
+                    summary_text = f"MEDIUM-HIGH RISK: {threat_factors[0]} and {threat_factors[1]}"
+                    if len(threat_factors) > 2:
+                        summary_text += f" + {len(threat_factors) - 2} more concern{'s' if len(threat_factors) - 2 != 1 else ''}"
+                    summary_text += " - Exercise caution!"
                 elif len(threat_factors) == 1:
-                    summary_text = f"HIGH RISK: {threat_factors[0]}!"
-                elif len(threat_factors) == 2:
-                    summary_text = f"HIGH RISK: {threat_factors[0]} and {threat_factors[1]}!"
+                    if "unchecked" in threat_factors[0]:
+                        summary_text = f"CAUTION: {threat_factors[0]} - Threat intelligence unavailable, manual verification required"
+                    else:
+                        summary_text = f"MEDIUM RISK: {threat_factors[0]} - Exercise caution!"
                 else:
-                    summary_text = f"HIGH RISK: {threat_factors[0]}, {threat_factors[1]}, and {len(threat_factors) - 2} more threat{'s' if len(threat_factors) - 2 != 1 else ''}!"
-            else:
-                summary_text = "Attachments appear benign, but verify manually."
+                    # Only if we have NO attachments or all are clearly benign AND verified
+                    benign_verified_count = sum(1 for r in valid_results if r.get('vt_verdict') == 'benign')
+                    if benign_verified_count == len(valid_results) and len(valid_results) > 0:
+                        summary_text = "Attachments verified as benign by threat intelligence."
+                        summary_color = "green"
+                    elif len(valid_results) == 0:
+                        summary_text = "No attachments found."
+                        summary_color = "green"
+                    else:
+                        summary_text = "Attachment security status unclear - manual verification recommended."
+                        summary_color = "orange3"
+                
+                return summary_text, summary_color, unchecked_count
+            
+            # Generate the assessment with error handling
+            if not results:
+                summary_text = "No attachments to assess."
                 summary_color = "green"
+                unchecked_count = 0
+            else:
+                summary_text, summary_color, unchecked_count = generate_security_conscious_assessment(results)
             
             if COMPATIBLE_OUTPUT:
                 output.print(f"[blue bold]ATTACHMENT ASSESSMENT:[/blue bold] [{summary_color}]{summary_text}[/{summary_color}]")
             else:
                 print(f"ATTACHMENT ASSESSMENT: {summary_text}")
             
+            # Add detailed security guidance for unchecked files
+            if unchecked_count > 0:
+                if COMPATIBLE_OUTPUT:
+                    output.print("")  # Blank line
+                    output.print("[yellow bold]SECURITY NOTICE:[/yellow bold] [yellow]Threat intelligence unavailable for some files.[/yellow]")
+                    output.print("[yellow]This could indicate:[/yellow]")
+                    output.print("[yellow]• Novel malware not yet in threat databases[/yellow]")
+                    output.print("[yellow]• Zero-day threats or targeted attacks[/yellow]")
+                    output.print("[yellow]• Network/API connectivity issues[/yellow]")
+                    output.print("[yellow]• Files requiring manual sandbox analysis[/yellow]")
+                    output.print("")
+                    output.print("[yellow bold]RECOMMENDED ACTIONS:[/yellow bold]")
+                    output.print("[yellow]• Do NOT open unchecked files on production systems[/yellow]")
+                    output.print("[yellow]• Use isolated sandbox environment for analysis[/yellow]")
+                    output.print("[yellow]• Submit files to multiple threat intelligence sources[/yellow]")
+                    output.print("[yellow]• Consider this email HIGH RISK until proven otherwise[/yellow]")
+                else:
+                    print()
+                    print("SECURITY NOTICE: Threat intelligence unavailable for some files.")
+                    print("This could indicate:")
+                    print("• Novel malware not yet in threat databases")
+                    print("• Zero-day threats or targeted attacks") 
+                    print("• Network/API connectivity issues")
+                    print("• Files requiring manual sandbox analysis")
+                    print()
+                    print("RECOMMENDED ACTIONS:")
+                    print("• Do NOT open unchecked files on production systems")
+                    print("• Use isolated sandbox environment for analysis")
+                    print("• Submit files to multiple threat intelligence sources")
+                    print("• Consider this email HIGH RISK until proven otherwise")
+            
             print()
             
         except Exception as e:
             if COMPATIBLE_OUTPUT:
-                print_status(f"Error generating summary assessment: {e}", "error")
+                print_status(f"Error generating security-conscious assessment: {e}", "error")
             else:
-                print(f"Error generating summary assessment: {e}")
+                print(f"Error generating security-conscious assessment: {e}")
             print()
         
         return results

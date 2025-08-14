@@ -113,15 +113,72 @@ def get_file_size(file_path):
         return "Unknown size"
 
 def apply_defanging_to_output(text, use_defanged):
-    """Apply defanging to terminal output if requested."""
-    if not use_defanged:
+    """Apply defanging to terminal output based on export choice (independent of global settings)."""
+    if not use_defanged or not text:
         return text
         
     try:
-        from . import defanger
-        return defanger.defang_text(str(text))
-    except:
-        return text
+        result = str(text)
+        
+        # Check if content is already defanged (avoid double-defanging)
+        if '[.]' in result or '[:]' in result:
+            # Already defanged, return as-is
+            return result
+        
+        # Use our own defanging logic independent of global settings
+        
+        # Replace protocols
+        result = result.replace('https://', 'https[:]//') 
+        result = result.replace('http://', 'http[:]//') 
+        result = result.replace('ftp://', 'ftp[:]//') 
+        
+        # Replace common TLDs and domains
+        replacements = [
+            ('.com', '[.]com'),
+            ('.net', '[.]net'),
+            ('.org', '[.]org'),
+            ('.edu', '[.]edu'),
+            ('.gov', '[.]gov'),
+            ('.mil', '[.]mil'),
+            ('.int', '[.]int'),
+            ('.co.', '[.]co[.]'),
+            ('.uk', '[.]uk'),
+            ('.de', '[.]de'),
+            ('.fr', '[.]fr'),
+            ('.io', '[.]io'),
+            ('.me', '[.]me'),
+            ('.ru', '[.]ru'),
+            ('.cn', '[.]cn'),
+            ('.jp', '[.]jp'),
+            ('.au', '[.]au'),
+            ('.ca', '[.]ca'),
+            ('.info', '[.]info'),
+            ('.biz', '[.]biz'),
+            ('.tv', '[.]tv'),
+            ('.cc', '[.]cc')
+        ]
+        
+        for original, replacement in replacements:
+            result = result.replace(original, replacement)
+        
+        # Handle IP addresses
+        import re
+        
+        # IPv4 defanging
+        ipv4_pattern = r'\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b'
+        def defang_ipv4(match):
+            return match.group(0).replace('.', '[.]')
+        result = re.sub(ipv4_pattern, defang_ipv4, result)
+        
+        # IPv6 defanging (basic pattern)
+        ipv6_pattern = r'\b[0-9a-fA-F:]+::[0-9a-fA-F:]*\b|\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b'
+        def defang_ipv6(match):
+            return match.group(0).replace(':', '[:]')
+        result = re.sub(ipv6_pattern, defang_ipv6, result)
+        
+        return result
+    except Exception:
+        return str(text)
 
 def escape_html(text):
     """Escape HTML special characters but preserve line breaks."""
@@ -190,8 +247,17 @@ def ansi_to_html_careful(text):
             return f'<span style="{"; ".join(styles)}">'
         return ''
     
+    # FIXED: Preserve defanged brackets during HTML escaping
+    # Temporarily replace defanged brackets with placeholders
+    text = text.replace('[.]', '|||DOT|||')
+    text = text.replace('[:]', '|||COLON|||')
+    
     # First, escape HTML characters
     html_text = escape_html(text)
+    
+    # Restore defanged brackets AFTER HTML escaping
+    html_text = html_text.replace('|||DOT|||', '[.]')
+    html_text = html_text.replace('|||COLON|||', '[:]')
     
     # Then convert ANSI codes
     ansi_pattern = re.compile(r'\033\[([0-9;]*)m')
@@ -222,6 +288,7 @@ def capture_complete_analysis_data(file_path, file_type, use_defanged):
     
     import sys
     import io
+    import os
     
     try:
         # Import analysis modules
@@ -232,93 +299,146 @@ def capture_complete_analysis_data(file_path, file_type, use_defanged):
         from . import body_analyzer
         from . import attachment_analyzer
         
-        # Get the API key from the main module
+        # DIRECT MODULE OVERRIDE - More reliable than file manipulation
+        original_output_mode = None
         main_module = sys.modules.get('__main__') or sys.modules.get('phishalyzer')
-        api_key = None
-        if main_module:
-            # Try to get the saved API key the same way the main script does
+        
+        if use_defanged and main_module:
+            # Save original output mode from main module
+            original_output_mode = getattr(main_module, 'output_mode', 'fanged')
+            # Temporarily override the global output_mode variable
+            setattr(main_module, 'output_mode', 'defanged')
+        
+        # ALSO override the file-based check for url_extractor
+        OUTPUT_MODE_FILE = os.path.expanduser("~/.phishalyzer_output_mode")
+        original_file_mode = None
+        
+        if use_defanged:
+            # Save original file mode
             try:
-                api_key = getattr(main_module, 'get_saved_api_key', lambda: None)()
-            except:
+                if os.path.exists(OUTPUT_MODE_FILE):
+                    with open(OUTPUT_MODE_FILE, "r", encoding='utf-8') as f:
+                        original_file_mode = f.read().strip()
+                else:
+                    original_file_mode = None  # File didn't exist
+                
+                # Temporarily set to defanged
+                with open(OUTPUT_MODE_FILE, "w", encoding='utf-8') as f:
+                    f.write("defanged")
+            except Exception:
                 pass
         
-        # Load the email
-        msg_obj, _ = parser.load_email(file_path)
-        
-        # Store all analysis results
-        analysis_data = {}
-        
-        # Helper function to capture output and store results
-        def capture_with_data(func, *args, **kwargs):
-            old_stdout = sys.stdout
-            sys.stdout = captured_output = io.StringIO()
+        try:
+            # Get the API key from the main module
+            api_key = None
+            if main_module:
+                # Try to get the saved API key the same way the main script does
+                try:
+                    api_key = getattr(main_module, 'get_saved_api_key', lambda: None)()
+                except:
+                    pass
             
+            # Load the email
+            msg_obj, _ = parser.load_email(file_path)
+            
+            # Store all analysis results
+            analysis_data = {}
+            
+            # Helper function to capture output and store results
+            def capture_with_data(func, *args, **kwargs):
+                old_stdout = sys.stdout
+                sys.stdout = captured_output = io.StringIO()
+                
+                try:
+                    result = func(*args, **kwargs)
+                    output_text = captured_output.getvalue()
+                    
+                    # Apply additional defanging as backup (this should now be redundant)
+                    if use_defanged:
+                        output_text = apply_defanging_to_output(output_text, True)
+                    
+                    return output_text, result
+                except Exception as e:
+                    return f"Error capturing output: {e}", None
+                finally:
+                    sys.stdout = old_stdout
+            
+            # 1. Header Analysis (including detailed factors)
             try:
-                result = func(*args, **kwargs)
-                output_text = captured_output.getvalue()
+                header_output, _ = capture_with_data(header_analyzer.analyze_headers, msg_obj)
+                analysis_data['header_analysis'] = header_output
                 
-                # Apply defanging if requested
-                if use_defanged:
-                    output_text = apply_defanging_to_output(output_text, True)
-                
-                return output_text, result
+                # Also get the stored hops data
+                if main_module and hasattr(main_module, 'last_received_hops'):
+                    analysis_data['received_hops'] = getattr(main_module, 'last_received_hops', [])
+                else:
+                    analysis_data['received_hops'] = []
+                    
             except Exception as e:
-                return f"Error capturing output: {e}", None
-            finally:
-                sys.stdout = old_stdout
-        
-        # 1. Header Analysis (including detailed factors)
-        try:
-            header_output, _ = capture_with_data(header_analyzer.analyze_headers, msg_obj)
-            analysis_data['header_analysis'] = header_output
-            
-            # Also get the stored hops data
-            if main_module and hasattr(main_module, 'last_received_hops'):
-                analysis_data['received_hops'] = getattr(main_module, 'last_received_hops', [])
-            else:
+                analysis_data['header_analysis'] = f"Error: {e}"
                 analysis_data['received_hops'] = []
+            
+            # 2. IP Analysis (with API key)
+            try:
+                ip_output, ip_results = capture_with_data(ioc_extractor.analyze_ips, msg_obj, api_key)
+                analysis_data['ip_analysis'] = ip_output
+                analysis_data['ip_results'] = ip_results
+            except Exception as e:
+                analysis_data['ip_analysis'] = f"Error: {e}"
+                analysis_data['ip_results'] = []
+            
+            # 3. URL Analysis (with API key and detailed breakdown)
+            try:
+                url_output, url_results = capture_with_data(url_extractor.analyze_urls, msg_obj, api_key)
+                analysis_data['url_analysis'] = url_output
+                analysis_data['url_results'] = url_results
+            except Exception as e:
+                analysis_data['url_analysis'] = f"Error: {e}"
+                analysis_data['url_results'] = []
+            
+            # 4. Body Analysis (with detailed breakdown)
+            try:
+                body_output, body_results = capture_with_data(body_analyzer.analyze_email_body, msg_obj, api_key)
+                analysis_data['body_analysis'] = body_output
+                analysis_data['body_results'] = body_results
+            except Exception as e:
+                analysis_data['body_analysis'] = f"Error: {e}"
+                analysis_data['body_results'] = None
+            
+            # 5. Attachment Analysis (with all details)
+            try:
+                attachment_output, attachment_results = capture_with_data(attachment_analyzer.analyze_attachments, msg_obj, api_key)
+                analysis_data['attachment_analysis'] = attachment_output
+                analysis_data['attachment_results'] = attachment_results
+            except Exception as e:
+                analysis_data['attachment_analysis'] = f"Error: {e}"
+                analysis_data['attachment_results'] = []
+            
+            return analysis_data
+            
+        finally:
+            # RESTORE both the module variable and file
+            if use_defanged:
+                # Restore main module output_mode
+                if main_module and original_output_mode is not None:
+                    setattr(main_module, 'output_mode', original_output_mode)
                 
-        except Exception as e:
-            analysis_data['header_analysis'] = f"Error: {e}"
-            analysis_data['received_hops'] = []
-        
-        # 2. IP Analysis (with API key)
-        try:
-            ip_output, ip_results = capture_with_data(ioc_extractor.analyze_ips, msg_obj, api_key)
-            analysis_data['ip_analysis'] = ip_output
-            analysis_data['ip_results'] = ip_results
-        except Exception as e:
-            analysis_data['ip_analysis'] = f"Error: {e}"
-            analysis_data['ip_results'] = []
-        
-        # 3. URL Analysis (with API key and detailed breakdown)
-        try:
-            url_output, url_results = capture_with_data(url_extractor.analyze_urls, msg_obj, api_key)
-            analysis_data['url_analysis'] = url_output
-            analysis_data['url_results'] = url_results
-        except Exception as e:
-            analysis_data['url_analysis'] = f"Error: {e}"
-            analysis_data['url_results'] = []
-        
-        # 4. Body Analysis (with detailed breakdown)
-        try:
-            body_output, body_results = capture_with_data(body_analyzer.analyze_email_body, msg_obj, api_key)
-            analysis_data['body_analysis'] = body_output
-            analysis_data['body_results'] = body_results
-        except Exception as e:
-            analysis_data['body_analysis'] = f"Error: {e}"
-            analysis_data['body_results'] = None
-        
-        # 5. Attachment Analysis (with all details)
-        try:
-            attachment_output, attachment_results = capture_with_data(attachment_analyzer.analyze_attachments, msg_obj, api_key)
-            analysis_data['attachment_analysis'] = attachment_output
-            analysis_data['attachment_results'] = attachment_results
-        except Exception as e:
-            analysis_data['attachment_analysis'] = f"Error: {e}"
-            analysis_data['attachment_results'] = []
-        
-        return analysis_data
+                # Restore file mode
+                try:
+                    if original_file_mode is None:
+                        # File didn't exist originally, remove it
+                        if os.path.exists(OUTPUT_MODE_FILE):
+                            os.remove(OUTPUT_MODE_FILE)
+                    elif original_file_mode == "fanged":
+                        # Remove the file if it was originally fanged (default)
+                        if os.path.exists(OUTPUT_MODE_FILE):
+                            os.remove(OUTPUT_MODE_FILE)
+                    else:
+                        # Restore the original mode
+                        with open(OUTPUT_MODE_FILE, "w", encoding='utf-8') as f:
+                            f.write(original_file_mode)
+                except Exception:
+                    pass
         
     except Exception as e:
         return {'error': f"Failed to capture analysis data: {e}"}

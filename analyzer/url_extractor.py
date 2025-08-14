@@ -6,6 +6,70 @@ import os
 from urllib.parse import urlparse
 from collections import defaultdict
 
+_section_rate_limit_decision = None
+def safe_handle_rate_limit_section_wide(item_type, item_name):
+    """
+    Handle VirusTotal rate limiting with section-wide decision.
+    Ask user once per section, then apply to all items in that section.
+    """
+    global _section_rate_limit_decision
+    
+    try:
+        # If we already have a decision for this section, use it
+        if _section_rate_limit_decision is not None:
+            if _section_rate_limit_decision == "wait":
+                print(f"Waiting 60 seconds for {item_name}...")
+                time.sleep(60)
+                return "wait"
+            else:  # skip
+                return "skip"
+        
+        # First rate limit in this section - ask user
+        while True:
+            try:
+                escaped_item = output.escape(str(item_name)) if COMPATIBLE_OUTPUT else str(item_name)
+                
+                if COMPATIBLE_OUTPUT:
+                    print_status("VirusTotal API rate limit reached.", "warning")
+                    choice = input(f"For {item_type} analysis: Type 'wait' to wait for ALL {item_type}s, or 'skip' (or press Enter) to skip ALL remaining {item_type}s: ").strip().lower()
+                else:
+                    choice = input(
+                        f"VirusTotal API rate limit reached.\n"
+                        f"For {item_type} analysis: Type 'wait' to wait for ALL {item_type}s, or 'skip' (or press Enter) to skip ALL remaining {item_type}s: "
+                    ).strip().lower()
+                
+                if choice == "wait":
+                    _section_rate_limit_decision = "wait"
+                    print(f"Will wait 60 seconds for each rate-limited {item_type} in this section...")
+                    print(f"Waiting 60 seconds for {item_name}...")
+                    time.sleep(60)
+                    return "wait"
+                elif choice == "skip" or choice == "":
+                    _section_rate_limit_decision = "skip"
+                    print(f"Skipping all remaining rate-limited {item_type}s in this section...")
+                    return "skip"
+                else:
+                    print("Invalid input. Please type 'wait', 'skip', or press Enter.")
+            except (KeyboardInterrupt, EOFError):
+                print(f"\nSkipping all {item_type}s due to user interruption.")
+                _section_rate_limit_decision = "skip"
+                return "skip"
+            except Exception as e:
+                if COMPATIBLE_OUTPUT:
+                    print_status(f"Input error: {e}", "error")
+                else:
+                    print(f"Input error: {e}")
+                _section_rate_limit_decision = "skip"
+                return "skip"
+    except Exception:
+        _section_rate_limit_decision = "skip"
+        return "skip"
+
+def reset_section_rate_limit_decision():
+    """Reset the section-wide rate limit decision. Call this at the start of each analysis section."""
+    global _section_rate_limit_decision
+    _section_rate_limit_decision = None
+
 # Import universal output system
 try:
     from .compatible_output import output, print_status
@@ -391,35 +455,9 @@ def safe_virustotal_request(url, headers, original_url):
     
     return None
 
-def safe_handle_rate_limit(url):  # Also fix in url_extractor.py
-    """Safely handle VirusTotal rate limiting with user choice."""
-    try:
-        while True:
-            try:
-                choice = input(
-                    "VirusTotal API rate limit reached.\n"
-                    "Type 'wait' to wait 60 seconds, or 'skip' (or press Enter) to proceed without checking: "
-                ).strip().lower()
-                
-                if choice == "wait":
-                    print("Waiting 60 seconds...")
-                    time.sleep(60)
-                    return "wait"
-                elif choice == "skip" or choice == "":  # FIXED: Accept empty input as skip
-                    return "skip"
-                else:
-                    print("Invalid input. Please type 'wait', 'skip', or press Enter.")
-            except (KeyboardInterrupt, EOFError):
-                print("\nSkipping due to user interruption.")
-                return "skip"
-            except Exception as e:
-                if COMPATIBLE_OUTPUT:
-                    print_status(f"Input error: {e}", "error")
-                else:
-                    print(f"Input error: {e}")
-                return "skip"
-    except Exception:
-        return "skip"
+def safe_handle_rate_limit(url):
+    """Legacy function - now uses section-wide handling."""
+    return safe_handle_rate_limit_section_wide("URL", url)
 
 def check_url_virustotal(url, api_key, cache):
     """Check URL against VirusTotal with comprehensive error handling."""
@@ -539,6 +577,7 @@ def safe_get_user_input(prompt):
 def analyze_urls(msg_obj, api_key):
     """Analyze URLs from both email headers AND body content with domain-based grouping."""
     try:
+        reset_section_rate_limit_decision()
         # Import the global variable from main module
         try:
             import sys

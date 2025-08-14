@@ -4,6 +4,12 @@ import requests
 import base64
 from urllib.parse import urlparse
 
+try:
+    from .ioc_extractor import safe_handle_rate_limit_section_wide, reset_section_rate_limit_decision
+    SECTION_RATE_LIMIT_AVAILABLE = True
+except ImportError:
+    SECTION_RATE_LIMIT_AVAILABLE = False
+
 # Import compatible output system
 try:
     from .compatible_output import output, print_status, create_colored_text
@@ -171,27 +177,31 @@ def check_url_virustotal_qr(url, api_key, cache):
     try:
         response = requests.get(api_url, headers=headers, timeout=10)
         if response.status_code == 429:
-                while True:
-                    if COMPATIBLE_OUTPUT:
-                        print_status("VirusTotal API rate limit reached.", "warning")
-                        choice = input("Type 'wait' to wait 60 seconds, or 'skip' (or press Enter) to proceed without checking: ").strip().lower()
+            if SECTION_RATE_LIMIT_AVAILABLE:
+                # Use section-wide rate limit handling
+                action = safe_handle_rate_limit_section_wide("QR URL", url)
+                if action == "wait":
+                    print("Waiting 60 seconds...")
+                    time.sleep(60)
+                    response = requests.get(api_url, headers=headers, timeout=10)
+                    if response.status_code != 429:
+                        pass  # Continue with processing
                     else:
-                        choice = input(
-                            "VirusTotal API rate limit reached.\n"
-                            "Type 'wait' to wait 60 seconds, or 'skip' (or press Enter) to proceed without checking: "
-                        ).strip().lower()
-                        
-                    if choice == "wait":
-                        print("Waiting 60 seconds...")
-                        time.sleep(60)
-                        response = requests.get(api_url, headers=headers, timeout=10)
-                        if response.status_code != 429:
-                            break
-                    elif choice == "skip" or choice == "":  # FIXED: Accept empty input as skip
-                        cache[url] = ("unchecked", "URL will need to be investigated manually")
+                        cache[url] = ("unchecked", "Rate limit persists")
                         return cache[url]
-                    else:
-                        print("Invalid input. Please type 'wait', 'skip', or press Enter.")
+                else:  # skip
+                    cache[url] = ("unchecked", "Skipped due to rate limit")
+                    return cache[url]
+            else:
+                # Fallback to single prompt behavior
+                choice = input("Type 'wait' to wait 60 seconds, or 'skip' (or press Enter) to proceed: ").strip().lower()
+                if choice == "wait":
+                    print("Waiting 60 seconds...")
+                    time.sleep(60)
+                    response = requests.get(api_url, headers=headers, timeout=10)
+                elif choice == "skip" or choice == "":
+                    cache[url] = ("unchecked", "Skipped due to rate limit")
+                    return cache[url]
 
         if response.status_code == 200:
             data = response.json()
@@ -239,6 +249,9 @@ def is_url(data):
 
 def analyze_pdf_qr_codes(attachment_result, api_key):
     """Analyze PDF attachment for QR codes and return findings."""
+    if SECTION_RATE_LIMIT_AVAILABLE:
+        reset_section_rate_limit_decision()
+
     # Check dependencies
     missing_deps = check_qr_dependencies()
     if missing_deps:
@@ -401,7 +414,9 @@ def display_qr_analysis(attachment_index, qr_analysis):
 
 def analyze_image_qr_codes(attachment_result, api_key):
     """Analyze standalone image attachments for QR codes using existing infrastructure."""
-    
+    if SECTION_RATE_LIMIT_AVAILABLE:
+        reset_section_rate_limit_decision()
+
     # Check dependencies (reuse existing function)
     missing_deps = check_qr_dependencies()
     if missing_deps:

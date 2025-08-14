@@ -1,6 +1,6 @@
 """
-Exact Terminal Output Capture HTML Export module for phishalyzer.
-Captures the EXACT terminal output and converts it to HTML.
+Complete Terminal Output Capture HTML Export module for phishalyzer.
+Captures ALL analysis data and converts it to HTML with exact terminal formatting.
 """
 
 import os
@@ -141,8 +141,8 @@ def escape_html(text):
     
     return text
 
-def ansi_to_html(text):
-    """Convert ANSI escape sequences to HTML with exact terminal colors."""
+def ansi_to_html_careful(text):
+    """Convert ANSI escape sequences to HTML with careful handling to prevent issues."""
     # ANSI color code mappings to exact terminal colors
     ansi_colors = {
         # Regular colors
@@ -166,12 +166,19 @@ def ansi_to_html(text):
         '97': '#ffffff',  # Bright White
     }
     
-    # Process ANSI escape sequences
-    def replace_ansi(match):
-        codes = match.group(1).split(';')
+    # Process ANSI escape sequences more carefully
+    def replace_ansi_safe(match):
+        full_match = match.group(0)
+        codes = match.group(1)
+        
+        if not codes:
+            return '</span>'
+        
+        code_list = codes.split(';')
         styles = []
         
-        for code in codes:
+        for code in code_list:
+            code = code.strip()
             if code == '0' or code == '':  # Reset
                 return '</span>'
             elif code == '1':  # Bold
@@ -183,21 +190,37 @@ def ansi_to_html(text):
             return f'<span style="{"; ".join(styles)}">'
         return ''
     
-    # Replace ANSI escape sequences
-    ansi_pattern = re.compile(r'\033\[([0-9;]*)m')
-    html_text = ansi_pattern.sub(replace_ansi, text)
+    # First, escape HTML characters
+    html_text = escape_html(text)
     
-    # Close any remaining open spans
-    open_spans = html_text.count('<span') - html_text.count('</span>')
-    if open_spans > 0:
-        html_text += '</span>' * open_spans
+    # Then convert ANSI codes
+    ansi_pattern = re.compile(r'\033\[([0-9;]*)m')
+    html_text = ansi_pattern.sub(replace_ansi_safe, html_text)
+    
+    # Close any remaining open spans at line breaks to prevent bleeding
+    lines = html_text.split('\n')
+    processed_lines = []
+    
+    for line in lines:
+        # Count open and close spans in this line
+        open_spans = line.count('<span')
+        close_spans = line.count('</span>')
+        
+        # If there are unmatched open spans, close them at the end of the line
+        if open_spans > close_spans:
+            line += '</span>' * (open_spans - close_spans)
+        
+        processed_lines.append(line)
+    
+    # Rejoin with newlines
+    html_text = '\n'.join(processed_lines)
     
     return html_text
 
-def capture_analysis_output(file_path, file_type, use_defanged):
-    """Capture the actual terminal output from running the analysis."""
+def capture_complete_analysis_data(file_path, file_type, use_defanged):
+    """Capture ALL analysis data including detailed breakdowns using the same API key."""
     
-    import sys  # Move the import to function scope to fix scoping issue
+    import sys
     import io
     
     try:
@@ -209,14 +232,24 @@ def capture_analysis_output(file_path, file_type, use_defanged):
         from . import body_analyzer
         from . import attachment_analyzer
         
+        # Get the API key from the main module
+        main_module = sys.modules.get('__main__') or sys.modules.get('phishalyzer')
+        api_key = None
+        if main_module:
+            # Try to get the saved API key the same way the main script does
+            try:
+                api_key = getattr(main_module, 'get_saved_api_key', lambda: None)()
+            except:
+                pass
+        
         # Load the email
         msg_obj, _ = parser.load_email(file_path)
         
-        # Capture all output
-        captured_sections = []
+        # Store all analysis results
+        analysis_data = {}
         
-        # Helper function to capture output from analysis functions
-        def capture_function_output(func, *args, **kwargs):
+        # Helper function to capture output and store results
+        def capture_with_data(func, *args, **kwargs):
             old_stdout = sys.stdout
             sys.stdout = captured_output = io.StringIO()
             
@@ -234,88 +267,504 @@ def capture_analysis_output(file_path, file_type, use_defanged):
             finally:
                 sys.stdout = old_stdout
         
-        # Capture each analysis section
-        
-        # 1. Header Analysis
+        # 1. Header Analysis (including detailed factors)
         try:
-            header_output, _ = capture_function_output(header_analyzer.analyze_headers, msg_obj)
-            if header_output and header_output.strip():
-                captured_sections.append(("EMAIL HEADER ANALYSIS", header_output))
-        except Exception as e:
-            captured_sections.append(("EMAIL HEADER ANALYSIS", f"Error: {e}"))
-        
-        # 2. IP Analysis  
-        try:
-            ip_output, ip_results = capture_function_output(ioc_extractor.analyze_ips, msg_obj, None)
-            if ip_output and ip_output.strip():
-                captured_sections.append(("IP ADDRESS ANALYSIS", ip_output))
-        except Exception as e:
-            captured_sections.append(("IP ADDRESS ANALYSIS", f"Error: {e}"))
-        
-        # 3. URL Analysis
-        try:
-            url_output, url_results = capture_function_output(url_extractor.analyze_urls, msg_obj, None)
-            if url_output and url_output.strip():
-                captured_sections.append(("URL ANALYSIS", url_output))
-        except Exception as e:
-            captured_sections.append(("URL ANALYSIS", f"Error: {e}"))
-        
-        # 4. Body Analysis
-        try:
-            body_output, body_results = capture_function_output(body_analyzer.analyze_email_body, msg_obj, None)
-            if body_output and body_output.strip():
-                captured_sections.append(("EMAIL BODY ANALYSIS", body_output))
-        except Exception as e:
-            captured_sections.append(("EMAIL BODY ANALYSIS", f"Error: {e}"))
-        
-        # 5. Attachment Analysis
-        try:
-            attachment_output, attachment_results = capture_function_output(attachment_analyzer.analyze_attachments, msg_obj, None)
-            if attachment_output and attachment_output.strip():
-                captured_sections.append(("ATTACHMENT ANALYSIS", attachment_output))
-        except Exception as e:
-            captured_sections.append(("ATTACHMENT ANALYSIS", f"Error: {e}"))
-        
-        # 6. Executive Summary (if available)
-        try:
-            # Get the main module properly
-            main_module = None
-            for module_name in ['__main__', 'phishalyzer']:
-                if module_name in sys.modules:
-                    main_module = sys.modules[module_name]
-                    break
+            header_output, _ = capture_with_data(header_analyzer.analyze_headers, msg_obj)
+            analysis_data['header_analysis'] = header_output
             
-            if main_module and hasattr(main_module, 'generate_comprehensive_executive_summary'):
-                # Store some basic results to enable executive summary generation
-                if hasattr(main_module, 'last_url_analysis_results'):
-                    setattr(main_module, 'last_url_analysis_results', url_results if 'url_results' in locals() else None)
-                if hasattr(main_module, 'last_body_analysis_results'):
-                    setattr(main_module, 'last_body_analysis_results', body_results if 'body_results' in locals() else None)
-                if hasattr(main_module, 'last_attachment_results'):
-                    setattr(main_module, 'last_attachment_results', attachment_results if 'attachment_results' in locals() else None)
+            # Also get the stored hops data
+            if main_module and hasattr(main_module, 'last_received_hops'):
+                analysis_data['received_hops'] = getattr(main_module, 'last_received_hops', [])
+            else:
+                analysis_data['received_hops'] = []
                 
-                # Check if we have any results to generate summary
-                has_results = any([
-                    getattr(main_module, 'last_url_analysis_results', None),
-                    getattr(main_module, 'last_body_analysis_results', None),
-                    getattr(main_module, 'last_attachment_results', None)
-                ])
-                
-                if has_results:
-                    exec_output, _ = capture_function_output(main_module.generate_comprehensive_executive_summary)
-                    if exec_output and exec_output.strip():
-                        captured_sections.append(("EXECUTIVE FINDINGS REPORT", exec_output))
         except Exception as e:
-            # Don't add error for executive summary as it's optional
-            pass
+            analysis_data['header_analysis'] = f"Error: {e}"
+            analysis_data['received_hops'] = []
         
-        return captured_sections
+        # 2. IP Analysis (with API key)
+        try:
+            ip_output, ip_results = capture_with_data(ioc_extractor.analyze_ips, msg_obj, api_key)
+            analysis_data['ip_analysis'] = ip_output
+            analysis_data['ip_results'] = ip_results
+        except Exception as e:
+            analysis_data['ip_analysis'] = f"Error: {e}"
+            analysis_data['ip_results'] = []
+        
+        # 3. URL Analysis (with API key and detailed breakdown)
+        try:
+            url_output, url_results = capture_with_data(url_extractor.analyze_urls, msg_obj, api_key)
+            analysis_data['url_analysis'] = url_output
+            analysis_data['url_results'] = url_results
+        except Exception as e:
+            analysis_data['url_analysis'] = f"Error: {e}"
+            analysis_data['url_results'] = []
+        
+        # 4. Body Analysis (with detailed breakdown)
+        try:
+            body_output, body_results = capture_with_data(body_analyzer.analyze_email_body, msg_obj, api_key)
+            analysis_data['body_analysis'] = body_output
+            analysis_data['body_results'] = body_results
+        except Exception as e:
+            analysis_data['body_analysis'] = f"Error: {e}"
+            analysis_data['body_results'] = None
+        
+        # 5. Attachment Analysis (with all details)
+        try:
+            attachment_output, attachment_results = capture_with_data(attachment_analyzer.analyze_attachments, msg_obj, api_key)
+            analysis_data['attachment_analysis'] = attachment_output
+            analysis_data['attachment_results'] = attachment_results
+        except Exception as e:
+            analysis_data['attachment_analysis'] = f"Error: {e}"
+            analysis_data['attachment_results'] = []
+        
+        return analysis_data
         
     except Exception as e:
-        return [("ERROR", f"Failed to capture analysis output: {e}")]
+        return {'error': f"Failed to capture analysis data: {e}"}
 
-def generate_exact_terminal_html(file_path, file_type, use_defanged):
-    """Generate HTML from exact terminal output capture."""
+def remove_menu_hints_from_output(text):
+    """Remove menu hints from any analysis output."""
+    if not text:
+        return text
+    
+    lines = text.split('\n')
+    filtered_lines = []
+    
+    for line in lines:
+        line_clean = re.sub(r'\033\[[0-9;]*m', '', line).strip()
+        
+        # Skip menu hints
+        if ("Use menu option" in line_clean and "for full details" in line_clean) or \
+           ("Use menu option" in line_clean and "for full breakdown" in line_clean):
+            continue
+            
+        filtered_lines.append(line)
+    
+    return "\n".join(filtered_lines)
+
+def extract_header_factors_and_assessment(header_output):
+    """Extract warning/benign factors and header assessment from header analysis output."""
+    if not header_output:
+        return "", ""
+    
+    lines = header_output.split('\n')
+    warning_factors = []
+    benign_factors = []
+    malicious_factors = []
+    assessment_line = ""
+    
+    current_section = None
+    
+    for line in lines:
+        line_clean = re.sub(r'\033\[[0-9;]*m', '', line).strip()
+        
+        if line_clean.startswith("Malicious factors:"):
+            current_section = "malicious"
+            continue
+        elif line_clean.startswith("Warning factors:"):
+            current_section = "warning"
+            continue
+        elif line_clean.startswith("Benign factors:"):
+            current_section = "benign"
+            continue
+        elif line_clean.startswith("HEADER ASSESSMENT:"):
+            assessment_line = line  # Keep the full ANSI-formatted line
+            break
+        
+        if current_section and line_clean.startswith("- "):
+            factor = line_clean[2:]  # Remove "- "
+            if current_section == "warning":
+                warning_factors.append(factor)
+            elif current_section == "benign":
+                benign_factors.append(factor)
+            elif current_section == "malicious":
+                malicious_factors.append(factor)
+    
+    # Format the factors with proper coloring
+    factors_output = []
+    
+    if malicious_factors:
+        factors_output.append("\033[31mMalicious factors:\033[0m")
+        for factor in malicious_factors:
+            factors_output.append(f"- {factor}")
+        factors_output.append("")
+    
+    if warning_factors:
+        factors_output.append("\033[93mWarning factors:\033[0m")
+        for factor in warning_factors:
+            factors_output.append(f"- {factor}")
+        factors_output.append("")
+    
+    if benign_factors:
+        factors_output.append("\033[32mBenign factors:\033[0m")
+        for factor in benign_factors:
+            factors_output.append(f"- {factor}")
+        factors_output.append("")
+    
+    return "\n".join(factors_output), assessment_line
+
+def generate_enhanced_url_analysis(url_output, url_results):
+    """Generate enhanced URL analysis that matches the terminal output format."""
+    if not url_results:
+        return url_output
+    
+    # Remove the existing summary and menu hints from url_output
+    lines = url_output.split('\n')
+    clean_lines = []
+    skip_until_blank = False
+    
+    for line in lines:
+        line_clean = re.sub(r'\033\[[0-9;]*m', '', line).strip()
+        
+        # Keep the "Found X URLs across Y domains" line
+        if line_clean.startswith("Found") and "URLs across" in line_clean:
+            clean_lines.append(line)
+            clean_lines.append("")  # Add blank line after summary
+            break
+    
+    # Now build the detailed breakdown in the same format as the terminal
+    enhanced_lines = clean_lines.copy()
+    
+    # Group by verdict for detailed display
+    malicious_domains = [r for r in url_results if r['verdict'] == 'malicious']
+    suspicious_domains = [r for r in url_results if r['verdict'] == 'suspicious']
+    benign_domains = [r for r in url_results if r['verdict'] == 'benign']
+    unchecked_domains = [r for r in url_results if r['verdict'] == 'unchecked']
+    
+    # Display each category in order: MALICIOUS, SUSPICIOUS, UNCHECKED, BENIGN
+    for category_name, domains, color_code in [
+        ("MALICIOUS", malicious_domains, "31"),  # Red
+        ("SUSPICIOUS", suspicious_domains, "93"), # Orange/Yellow
+        ("UNCHECKED", unchecked_domains, "93"),   # Orange/Yellow
+        ("BENIGN", benign_domains, "32")          # Green
+    ]:
+        if not domains:
+            continue
+        
+        domain_count = len(domains)
+        
+        # Add category header
+        enhanced_lines.append(f"\033[{color_code}m{category_name} DOMAINS ({domain_count}):\033[0m")
+        
+        for result in domains:
+            domain = result['domain']
+            url_count = result['url_count']
+            comment = result['comment']
+            representative_url = result.get('representative_url', '')
+            
+            # Apply defanging if needed
+            from . import defanger
+            if defanger.should_defang():
+                display_domain = defanger.defang_text(domain)
+                display_representative = defanger.defang_text(representative_url) if representative_url else ''
+            else:
+                display_domain = domain
+                display_representative = representative_url
+            
+            # Format domain line
+            enhanced_lines.append(f"- {display_domain} ({url_count} URL{'s' if url_count != 1 else ''}) - {comment}")
+            
+            # Add sample URL if available
+            if display_representative:
+                enhanced_lines.append(f"  Sample: {display_representative}")
+        
+        enhanced_lines.append("")  # Blank line after each category
+    
+    return "\n".join(enhanced_lines)
+    """Generate detailed URL breakdown for integration into URL section."""
+    if not url_results:
+        return ""
+    
+    breakdown_lines = []
+    
+    # Group by verdict for detailed display
+    malicious_domains = [r for r in url_results if r['verdict'] == 'malicious']
+    suspicious_domains = [r for r in url_results if r['verdict'] == 'suspicious']
+    benign_domains = [r for r in url_results if r['verdict'] == 'benign']
+    unchecked_domains = [r for r in url_results if r['verdict'] == 'unchecked']
+    
+    # Show detailed breakdown for each category if there are multiple URLs
+    for category_name, domains, color in [
+        ("MALICIOUS", malicious_domains, "red"),
+        ("SUSPICIOUS", suspicious_domains, "orange3"),
+        ("UNCHECKED", unchecked_domains, "orange3"),
+        ("BENIGN", benign_domains, "green")
+    ]:
+        if not domains:
+            continue
+            
+        # Check if any domain has multiple URLs
+        has_multiple_urls = any(len(d['urls']) > 1 for d in domains)
+        
+        if has_multiple_urls:
+            breakdown_lines.append("")  # Spacing
+            breakdown_lines.append(f"\033[{'31' if color == 'red' else '93' if color == 'orange3' else '32' if color == 'green' else '33'}mDetailed {category_name} URL Breakdown:\033[0m")
+            
+            for result in domains:
+                if len(result['urls']) > 1:
+                    domain = result['domain']
+                    urls = result['urls']
+                    
+                    # Apply defanging
+                    from . import defanger
+                    if defanger.should_defang():
+                        display_domain = defanger.defang_text(domain)
+                        display_urls = [defanger.defang_text(url) for url in urls]
+                    else:
+                        display_domain = domain
+                        display_urls = urls
+                    
+                    breakdown_lines.append(f"  {display_domain} ({len(urls)} URLs):")
+                    for i, url in enumerate(display_urls, 1):
+                        breakdown_lines.append(f"    {i:2}. {url}")
+    
+def generate_detailed_url_breakdown(url_results):
+    """Generate the additional detailed URL breakdown for domains with multiple URLs."""
+    if not url_results:
+        return ""
+    
+    breakdown_lines = []
+    
+    # Group by verdict for detailed display
+    malicious_domains = [r for r in url_results if r['verdict'] == 'malicious']
+    suspicious_domains = [r for r in url_results if r['verdict'] == 'suspicious']
+    benign_domains = [r for r in url_results if r['verdict'] == 'benign']
+    unchecked_domains = [r for r in url_results if r['verdict'] == 'unchecked']
+    
+    # Show detailed breakdown for each category if there are multiple URLs
+    for category_name, domains, color in [
+        ("MALICIOUS", malicious_domains, "red"),
+        ("SUSPICIOUS", suspicious_domains, "orange3"),
+        ("UNCHECKED", unchecked_domains, "orange3"),
+        ("BENIGN", benign_domains, "green")
+    ]:
+        if not domains:
+            continue
+            
+        # Check if any domain has multiple URLs
+        has_multiple_urls = any(len(d['urls']) > 1 for d in domains)
+        
+        if has_multiple_urls:
+            breakdown_lines.append("")  # Spacing
+            breakdown_lines.append(f"\033[{'31' if color == 'red' else '93' if color == 'orange3' else '32' if color == 'green' else '33'}mDetailed {category_name} URL Breakdown:\033[0m")
+            
+            for result in domains:
+                if len(result['urls']) > 1:
+                    domain = result['domain']
+                    urls = result['urls']
+                    
+                    # Apply defanging
+                    from . import defanger
+                    if defanger.should_defang():
+                        display_domain = defanger.defang_text(domain)
+                        display_urls = [defanger.defang_text(url) for url in urls]
+                    else:
+                        display_domain = domain
+                        display_urls = urls
+                    
+                    breakdown_lines.append(f"  {display_domain} ({len(urls)} URLs):")
+                    for i, url in enumerate(display_urls, 1):
+                        breakdown_lines.append(f"    {i:2}. {url}")
+    
+    return "\n".join(breakdown_lines)
+    """Generate detailed URL breakdown for integration into URL section."""
+    if not url_results:
+        return ""
+    
+    breakdown_lines = []
+    
+    # Group by verdict for detailed display
+    malicious_domains = [r for r in url_results if r['verdict'] == 'malicious']
+    suspicious_domains = [r for r in url_results if r['verdict'] == 'suspicious']
+    benign_domains = [r for r in url_results if r['verdict'] == 'benign']
+    unchecked_domains = [r for r in url_results if r['verdict'] == 'unchecked']
+    
+    # Show detailed breakdown for each category if there are multiple URLs
+    for category_name, domains, color in [
+        ("MALICIOUS", malicious_domains, "red"),
+        ("SUSPICIOUS", suspicious_domains, "orange3"),
+        ("UNCHECKED", unchecked_domains, "orange3"),
+        ("BENIGN", benign_domains, "green")
+    ]:
+        if not domains:
+            continue
+            
+        # Check if any domain has multiple URLs
+        has_multiple_urls = any(len(d['urls']) > 1 for d in domains)
+        
+        if has_multiple_urls:
+            breakdown_lines.append("")  # Spacing
+            breakdown_lines.append(f"\033[{'31' if color == 'red' else '93' if color == 'orange3' else '32' if color == 'green' else '33'}mDetailed {category_name} URL Breakdown:\033[0m")
+            
+            for result in domains:
+                if len(result['urls']) > 1:
+                    domain = result['domain']
+                    urls = result['urls']
+                    
+                    # Apply defanging
+                    from . import defanger
+                    if defanger.should_defang():
+                        display_domain = defanger.defang_text(domain)
+                        display_urls = [defanger.defang_text(url) for url in urls]
+                    else:
+                        display_domain = domain
+                        display_urls = urls
+                    
+                    breakdown_lines.append(f"  {display_domain} ({len(urls)} URLs):")
+                    for i, url in enumerate(display_urls, 1):
+                        breakdown_lines.append(f"    {i:2}. {url}")
+    
+    return "\n".join(breakdown_lines)
+
+def generate_detailed_body_breakdown(body_results):
+    """Generate detailed body analysis breakdown for integration."""
+    if not body_results or not body_results.get("findings"):
+        return ""
+    
+    breakdown_lines = []
+    findings = body_results["findings"]
+    
+    if findings:
+        breakdown_lines.append("")  # Spacing
+        breakdown_lines.append("\033[34mDetailed Body Analysis Breakdown:\033[0m")
+        
+        # Sort findings by risk level
+        risk_order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
+        sorted_findings = sorted(findings.values(), key=lambda x: (risk_order.get(x["risk_level"], 3), x["name"]))
+        
+        for finding in sorted_findings:
+            risk_level = finding["risk_level"]
+            name = finding["name"]
+            description = finding["description"]
+            matched_keywords = finding["matched_keywords"]
+            
+            # Determine color for risk level
+            if risk_level == "HIGH":
+                risk_color = "31"  # Red
+            elif risk_level == "MEDIUM":
+                risk_color = "93"  # Orange
+            else:
+                risk_color = "33"  # Yellow
+            
+            # Display category header
+            breakdown_lines.append(f"  \033[{risk_color}m[{risk_level}] {name}:\033[0m")
+            breakdown_lines.append(f"    Description: {description}")
+            
+            # Display matched keywords
+            breakdown_lines.append("    Matched keywords:")
+            for match in matched_keywords:
+                keyword = match["keyword"]
+                matched_text = match["matched_text"]
+                exact_match = match["exact_match"]
+                
+                if exact_match:
+                    match_info = "exact match"
+                else:
+                    match_info = f'found: "{matched_text}"'
+                
+                breakdown_lines.append(f"    - \"{keyword}\" ({match_info})")
+            
+            breakdown_lines.append("")  # Blank line between categories
+    
+    return "\n".join(breakdown_lines)
+
+def extract_header_factors(header_output):
+    """Extract warning and benign factors from header analysis output."""
+    if not header_output:
+        return "", ""
+    
+    lines = header_output.split('\n')
+    warning_factors = []
+    benign_factors = []
+    malicious_factors = []
+    
+    current_section = None
+    
+    for line in lines:
+        line_clean = re.sub(r'\033\[[0-9;]*m', '', line).strip()  # Remove ANSI codes
+        
+        if line_clean.startswith("Malicious factors:"):
+            current_section = "malicious"
+            continue
+        elif line_clean.startswith("Warning factors:"):
+            current_section = "warning"
+            continue
+        elif line_clean.startswith("Benign factors:"):
+            current_section = "benign"
+            continue
+        elif line_clean.startswith("HEADER ASSESSMENT:"):
+            break
+        
+        if current_section and line_clean.startswith("- "):
+            factor = line_clean[2:]  # Remove "- "
+            if current_section == "warning":
+                warning_factors.append(factor)
+            elif current_section == "benign":
+                benign_factors.append(factor)
+            elif current_section == "malicious":
+                malicious_factors.append(factor)
+    
+    # Format the factors with proper coloring
+    factors_output = []
+    
+    if malicious_factors:
+        factors_output.append("\033[31mMalicious factors:\033[0m")
+        for factor in malicious_factors:
+            factors_output.append(f"- {factor}")
+        factors_output.append("")
+    
+    if warning_factors:
+        factors_output.append("\033[93mWarning factors:\033[0m")
+        for factor in warning_factors:
+            factors_output.append(f"- {factor}")
+        factors_output.append("")
+    
+    if benign_factors:
+        factors_output.append("\033[32mBenign factors:\033[0m")
+        for factor in benign_factors:
+            factors_output.append(f"- {factor}")
+        factors_output.append("")
+    
+    return "\n".join(factors_output)
+
+def remove_header_factors_and_menu_hints(header_output):
+    """Remove factors section and menu hints from header output."""
+    if not header_output:
+        return header_output
+    
+    lines = header_output.split('\n')
+    filtered_lines = []
+    skip_section = False
+    
+    for line in lines:
+        line_clean = re.sub(r'\033\[[0-9;]*m', '', line).strip()
+        
+        # Skip factors sections
+        if line_clean.startswith(("Malicious factors:", "Warning factors:", "Benign factors:")):
+            skip_section = True
+            continue
+        elif line_clean.startswith("HEADER ASSESSMENT:"):
+            skip_section = False
+            continue  # Skip the header assessment line - we'll add it back later
+        
+        # Skip menu hints
+        if "Use menu option" in line_clean and "for full details" in line_clean:
+            continue
+        if "Use menu option" in line_clean and "for full breakdown" in line_clean:
+            continue
+            
+        if not skip_section:
+            filtered_lines.append(line)
+        elif skip_section and line_clean and not line_clean.startswith("- "):
+            # End of factors section
+            skip_section = False
+            filtered_lines.append(line)
+    
+    return "\n".join(filtered_lines)
+
+def generate_comprehensive_html_report(file_path, file_type, use_defanged):
+    """Generate comprehensive HTML report with all analysis data."""
     
     # Calculate file details
     email_filename = os.path.basename(file_path)
@@ -323,8 +772,29 @@ def generate_exact_terminal_html(file_path, file_type, use_defanged):
     file_hash = calculate_file_hash(file_path)
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-    # Capture the actual terminal output
-    captured_sections = capture_analysis_output(file_path, file_type, use_defanged)
+    # Capture all analysis data
+    analysis_data = capture_complete_analysis_data(file_path, file_type, use_defanged)
+    
+    if 'error' in analysis_data:
+        # Handle error case
+        html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phishalyzer Analysis Report - Error</title>
+    <style>
+        body {{ background-color: #0c0c0c; color: #cccccc; font-family: 'Courier New', monospace; }}
+    </style>
+</head>
+<body>
+    <div style="padding: 20px;">
+        <h1>Analysis Error</h1>
+        <p>{escape_html(analysis_data['error'])}</p>
+    </div>
+</body>
+</html>"""
+        return html_content
     
     # Build HTML with exact terminal styling
     html_content = f"""<!DOCTYPE html>
@@ -365,7 +835,7 @@ def generate_exact_terminal_html(file_path, file_type, use_defanged):
         .section-header {{
             color: #bc3fbc;
             font-weight: bold;
-            margin: 20px 0 10px 0;
+            margin: 30px 0 15px 0;
         }}
         
         a {{ color: #3b8eea; }}
@@ -373,36 +843,97 @@ def generate_exact_terminal_html(file_path, file_type, use_defanged):
 </head>
 <body>
     <div class="terminal-container">
-        <div class="report-header">EMAIL ANALYSIS REPORT
+        <div class="report-header"><span style="color: #2472c8;">EMAIL ANALYSIS REPORT</span>
 
 Generated: {timestamp}
 File: {escape_html(email_filename)}
 Size: {file_size}
 Type: {file_type.upper()}
 SHA256: {file_hash}
-Output: {'Defanged' if use_defanged else 'Fanged'}</div>
+<span style="color: #2472c8;">Output:</span> {'Defanged' if use_defanged else 'Fanged'}</div>
 """
 
-    # Add each captured section
-    for section_title, section_content in captured_sections:
-        # Format section header like terminal
-        total_width = 50
-        title_with_spaces = f" {section_title.upper()} "
-        padding_needed = total_width - len(title_with_spaces)
-        left_padding = padding_needed // 2
-        right_padding = padding_needed - left_padding
-        header_line = "=" * left_padding + title_with_spaces + "=" * right_padding
+    # EMAIL HEADER ANALYSIS Section
+    header_output = analysis_data.get('header_analysis', '')
+    received_hops = analysis_data.get('received_hops', [])
+    
+    if header_output:
+        # Remove factors and menu hints from header output (we'll add them later)
+        clean_header_output = remove_header_factors_and_menu_hints(header_output)
         
-        html_content += f'\n\n<div class="section-header">{header_line}</div>\n\n'
+        # Extract factors and assessment
+        factors_output, assessment_line = extract_header_factors_and_assessment(header_output)
         
-        # Convert the captured terminal output to HTML
-        if section_content.strip():
-            # Escape HTML first
-            escaped_content = escape_html(section_content)
-            # Then convert ANSI codes to HTML
-            html_content += ansi_to_html(escaped_content)
-        else:
-            html_content += '<span style="color: #0dbc79;">No output captured for this section</span>'
+        # Add section header
+        html_content += '\n<div class="section-header">============================ EMAIL HEADER ANALYSIS ============================</div>\n'
+        
+        # Add the cleaned header analysis
+        if clean_header_output.strip():
+            html_content += ansi_to_html_careful(clean_header_output)
+        
+        # Add detailed received hops if available
+        if received_hops:
+            html_content += '\n<span style="color: #2472c8;">Detailed Email Routing Hops:</span>\n\n'
+            
+            for hop in received_hops:
+                index = hop.get('index', '?')
+                content = hop.get('content', 'No content')
+                
+                # The content already has ANSI codes - convert carefully
+                hop_display = f"<span style=\"color: #2472c8;\">[{index}]</span> {ansi_to_html_careful(content)}\n"
+                html_content += hop_display
+        
+        # Add the extracted factors before the header assessment
+        if factors_output.strip():
+            html_content += '\n\n' + ansi_to_html_careful(factors_output)
+        
+        # Add the header assessment at the end
+        if assessment_line.strip():
+            html_content += '\n' + ansi_to_html_careful(assessment_line)
+
+    # IP ADDRESS ANALYSIS Section
+    ip_output = analysis_data.get('ip_analysis', '')
+    if ip_output and ip_output.strip():
+        clean_ip_output = remove_menu_hints_from_output(ip_output)
+        html_content += '\n\n<div class="section-header">============================= IP ADDRESS ANALYSIS =============================</div>\n'
+        html_content += ansi_to_html_careful(clean_ip_output)
+
+    # URL ANALYSIS Section  
+    url_output = analysis_data.get('url_analysis', '')
+    url_results = analysis_data.get('url_results', [])
+    
+    if url_output and url_output.strip():
+        # Generate enhanced URL analysis that matches the terminal format
+        enhanced_url_output = generate_enhanced_url_analysis(url_output, url_results)
+        
+        html_content += '\n\n<div class="section-header">================================ URL ANALYSIS ================================</div>\n'
+        html_content += ansi_to_html_careful(enhanced_url_output)
+        
+        # Add additional detailed URL breakdown for domains with multiple URLs
+        detailed_breakdown = generate_detailed_url_breakdown(url_results)
+        if detailed_breakdown.strip():
+            html_content += '\n' + ansi_to_html_careful(detailed_breakdown)
+
+    # EMAIL BODY ANALYSIS Section
+    body_output = analysis_data.get('body_analysis', '')
+    body_results = analysis_data.get('body_results')
+    
+    if body_output and body_output.strip():
+        clean_body_output = remove_menu_hints_from_output(body_output)
+        html_content += '\n\n<div class="section-header">============================== EMAIL BODY ANALYSIS ==============================</div>\n'
+        html_content += ansi_to_html_careful(clean_body_output)
+        
+        # Add detailed body breakdown
+        detailed_breakdown = generate_detailed_body_breakdown(body_results)
+        if detailed_breakdown.strip():
+            html_content += '\n' + ansi_to_html_careful(detailed_breakdown)
+
+    # ATTACHMENT ANALYSIS Section
+    attachment_output = analysis_data.get('attachment_analysis', '')
+    if attachment_output and attachment_output.strip():
+        clean_attachment_output = remove_menu_hints_from_output(attachment_output)
+        html_content += '\n\n<div class="section-header">============================= ATTACHMENT ANALYSIS =============================</div>\n'
+        html_content += ansi_to_html_careful(clean_attachment_output)
 
     # Close HTML
     html_content += """
@@ -419,13 +950,13 @@ def prompt_export_format():
         while True:
             if COMPATIBLE_OUTPUT:
                 output.print("\n[blue]Export Format:[/blue]")
-                output.print("[blue]1:[/blue] Terminal-style HTML Report")
+                output.print("[blue]1:[/blue] Complete Terminal Report (HTML)")
                 output.print("[blue]2:[/blue] Markdown Report (coming soon)")
                 output.print("[blue]3:[/blue] Plaintext Report (coming soon)")
                 output.print("[blue]4:[/blue] Return to main menu")
             else:
                 print("\nExport Format:")
-                print("1: Terminal-style HTML Report")
+                print("1: Complete Terminal Report (HTML)")
                 print("2: Markdown Report (coming soon)")
                 print("3: Plaintext Report (coming soon)")
                 print("4: Return to main menu")
@@ -433,7 +964,7 @@ def prompt_export_format():
             try:
                 choice = input("Enter option [1-4]: ").strip()
                 if choice in ['1']:
-                    format_type = 'terminal-html'
+                    format_type = 'complete-html'
                     break
                 elif choice in ['2', '3']:
                     if COMPATIBLE_OUTPUT:
@@ -486,7 +1017,7 @@ def prompt_export_format():
         return None, None
 
 def export_analysis_report():
-    """Main function to export analysis report with exact terminal output."""
+    """Main function to export comprehensive analysis report."""
     try:
         # Check if analysis has been run
         import sys
@@ -522,19 +1053,19 @@ def export_analysis_report():
             return  # User cancelled
         
         # Generate report
-        if format_type == 'terminal-html':
+        if format_type == 'complete-html':
             if COMPATIBLE_OUTPUT:
-                print_status("Generating exact terminal output HTML report...", "info")
+                print_status("Generating comprehensive analysis report...", "info")
             else:
-                print("Generating exact terminal output HTML report...")
+                print("Generating comprehensive analysis report...")
             
-            html_content = generate_exact_terminal_html(file_path, file_type, use_defanged)
+            html_content = generate_comprehensive_html_report(file_path, file_type, use_defanged)
             
             # Generate filename
             email_filename = os.path.basename(file_path)
             sanitized_name = sanitize_filename(email_filename)
             timestamp = datetime.datetime.now().strftime("%Y.%m.%d")
-            base_filename = f"{sanitized_name}_terminal_report_{timestamp}"
+            base_filename = f"{sanitized_name}_complete_report_{timestamp}"
             
             # Get desktop path and create unique filename
             desktop_path = get_desktop_path()
@@ -546,7 +1077,7 @@ def export_analysis_report():
                     f.write(html_content)
                 
                 if COMPATIBLE_OUTPUT:
-                    print_status(f"Terminal-style HTML report saved successfully!", "success")
+                    print_status(f"Complete analysis report saved successfully!", "success")
                     output.print(f"[blue]File location:[/blue] {output_path}")
                     
                     # Show file size
@@ -557,7 +1088,7 @@ def export_analysis_report():
                         size_str = f"{file_size} B"
                     output.print(f"[blue]File size:[/blue] {size_str}")
                 else:
-                    print(f"Terminal-style HTML report saved successfully!")
+                    print(f"Complete analysis report saved successfully!")
                     print(f"File location: {output_path}")
                     
                     file_size = os.path.getsize(output_path)
@@ -582,6 +1113,6 @@ def export_analysis_report():
         
     except Exception as e:
         if COMPATIBLE_OUTPUT:
-            print_status(f"Error generating exact terminal export report: {e}", "error")
+            print_status(f"Error generating comprehensive analysis report: {e}", "error")
         else:
-            print(f"Error generating exact terminal export report: {e}")
+            print(f"Error generating comprehensive analysis report: {e}")

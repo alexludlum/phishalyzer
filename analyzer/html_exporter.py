@@ -362,7 +362,16 @@ def capture_complete_analysis_data(file_path, file_type, use_defanged):
             # Helper function to capture output and store results
             def capture_with_data(func, *args, **kwargs):
                 old_stdout = sys.stdout
+                old_input = __builtins__['input'] if 'input' in __builtins__ else input
                 sys.stdout = captured_output = io.StringIO()
+                
+                # Override input function to auto-skip rate limit prompts
+                def mock_input(prompt=""):
+                    if "rate limit" in prompt.lower() or "wait" in prompt.lower() or "skip" in prompt.lower():
+                        return "skip"  # Always skip rate limit prompts during export
+                    return "skip"  # Default to skip for any input during export
+                
+                __builtins__['input'] = mock_input
                 
                 try:
                     result = func(*args, **kwargs)
@@ -377,6 +386,7 @@ def capture_complete_analysis_data(file_path, file_type, use_defanged):
                     return f"Error capturing output: {e}", None
                 finally:
                     sys.stdout = old_stdout
+                    __builtins__['input'] = old_input
             
             # 1. Header Analysis (including detailed factors)
             try:
@@ -650,6 +660,10 @@ def generate_detailed_url_breakdown(url_results):
                     for i, url in enumerate(display_urls, 1):
                         breakdown_lines.append(f"    {i:2}. {url}")
     
+    # Add final blank line if we generated any breakdown content
+    if breakdown_lines:
+        breakdown_lines.append("")
+    
     return "\n".join(breakdown_lines)
 
 def generate_detailed_body_breakdown(body_results):
@@ -772,7 +786,7 @@ def generate_comprehensive_html_report(file_path, file_type, use_defanged):
 </html>"""
         return html_content
     
-    # Build HTML with exact terminal styling
+    # Build HTML with exact terminal styling and FIXED spacing
     html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -811,7 +825,7 @@ def generate_comprehensive_html_report(file_path, file_type, use_defanged):
         .section-header {{
             color: #bc3fbc;
             font-weight: bold;
-            margin: 30px 0 15px 0;
+            margin: 15px 0 15px 0;
         }}
         
         a {{ color: #3b8eea; }}
@@ -841,7 +855,7 @@ SHA256: {file_hash}
         factors_output, assessment_line = extract_header_factors_and_assessment(header_output)
         
         # Add section header
-        html_content += '\n<div class="section-header">============================ EMAIL HEADER ANALYSIS ============================</div>\n'
+        html_content += '<div class="section-header">============================ EMAIL HEADER ANALYSIS ============================</div>\n'
         
         # Add the cleaned header analysis
         if clean_header_output.strip():
@@ -866,12 +880,14 @@ SHA256: {file_hash}
         # Add the header assessment at the end
         if assessment_line.strip():
             html_content += '\n' + ansi_to_html_careful(assessment_line)
+            # Add blank line after header assessment
+            html_content += '\n'
 
     # IP ADDRESS ANALYSIS Section
     ip_output = analysis_data.get('ip_analysis', '')
     if ip_output and ip_output.strip():
         clean_ip_output = remove_menu_hints_from_output(ip_output)
-        html_content += '\n\n<div class="section-header">============================= IP ADDRESS ANALYSIS =============================</div>\n'
+        html_content += '\n<div class="section-header">============================= IP ADDRESS ANALYSIS =============================</div>\n'
         html_content += ansi_to_html_careful(clean_ip_output)
 
     # URL ANALYSIS Section  
@@ -882,13 +898,15 @@ SHA256: {file_hash}
         # Generate enhanced URL analysis that matches the terminal format
         enhanced_url_output = generate_enhanced_url_analysis(url_output, url_results)
         
-        html_content += '\n\n<div class="section-header">================================ URL ANALYSIS ================================</div>\n'
+        html_content += '\n<div class="section-header">================================ URL ANALYSIS ================================</div>\n'
         html_content += ansi_to_html_careful(enhanced_url_output)
         
         # Add additional detailed URL breakdown for domains with multiple URLs
         detailed_breakdown = generate_detailed_url_breakdown(url_results)
         if detailed_breakdown.strip():
             html_content += '\n' + ansi_to_html_careful(detailed_breakdown)
+            # Add extra spacing after detailed breakdown to match terminal output
+            html_content += '\n'
 
     # EMAIL BODY ANALYSIS Section
     body_output = analysis_data.get('body_analysis', '')
@@ -896,7 +914,7 @@ SHA256: {file_hash}
     
     if body_output and body_output.strip():
         clean_body_output = remove_menu_hints_from_output(body_output)
-        html_content += '\n\n<div class="section-header">============================== EMAIL BODY ANALYSIS ==============================</div>\n'
+        html_content += '\n<div class="section-header">============================== EMAIL BODY ANALYSIS ==============================</div>\n'
         html_content += ansi_to_html_careful(clean_body_output)
         
         # Add detailed body breakdown
@@ -908,7 +926,7 @@ SHA256: {file_hash}
     attachment_output = analysis_data.get('attachment_analysis', '')
     if attachment_output and attachment_output.strip():
         clean_attachment_output = remove_menu_hints_from_output(attachment_output)
-        html_content += '\n\n<div class="section-header">============================= ATTACHMENT ANALYSIS =============================</div>\n'
+        html_content += '\n<div class="section-header">============================= ATTACHMENT ANALYSIS =============================</div>\n'
         html_content += ansi_to_html_careful(clean_attachment_output)
 
     # Close HTML

@@ -15,24 +15,27 @@ IPV4_PATTERN = re.compile(r'\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(
 DEFANGED_IPV4_PATTERN = re.compile(r'\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\[\.\]){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b')
 
 # COMPREHENSIVE IPv6 patterns - handles all variations with proper boundaries
+# COMPREHENSIVE IPv6 patterns - handles all variations with proper boundaries
 IPV6_PATTERNS = [
     # IPv6 loopback (::1) - highest priority
     re.compile(r'\b::1\b'),
     
-    # IPv6 with compression - MULTIPLE patterns to handle all segment counts
-    # Use non-capturing groups and better boundary detection for hex-only segments
+    # Link-local addresses (fe80::) - FIXED to capture complete addresses
+    re.compile(r'\bfe80::[0-9a-fA-F]{1,4}:[0-9a-fA-F]{1,4}:[0-9a-fA-F]{1,4}:[0-9a-fA-F]{1,4}(?:%\d+)?\b'),
+    re.compile(r'\bfe80::[0-9a-fA-F:]+(?:%\d+)?\b'),  # More flexible fe80 pattern
     
-    # Pattern: 2603:10a6:20b:467:cafe::1 (5+ segments before ::) - FIXED for hex-only segments
-    re.compile(r'\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4}){4,}::[0-9a-fA-F]{1,4}(?=\s|\W|$)'),
+    # IPv6 with compression - MULTIPLE patterns to handle all segment counts
+    # Pattern: 2603:10a6:20b:467:cafe::1 (5+ segments before ::)
+    re.compile(r'\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4}){4,}::[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4})*(?=\s|\W|$)'),
     
     # Pattern: 2603:10a6:e10:39::20 (3-4 segments before ::)
-    re.compile(r'\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4}){2,3}::[0-9a-fA-F]{1,4}(?=\s|\W|$)'),
+    re.compile(r'\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4}){2,3}::[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4})*(?=\s|\W|$)'),
     
     # Pattern: 2603:10a6::d6 (2 segments before ::)
-    re.compile(r'\b[0-9a-fA-F]{1,4}:[0-9a-fA-F]{1,4}::[0-9a-fA-F]{1,4}(?=\s|\W|$)'),
+    re.compile(r'\b[0-9a-fA-F]{1,4}:[0-9a-fA-F]{1,4}::[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4})*(?=\s|\W|$)'),
     
     # Pattern: 2603::d6 (1 segment before ::)
-    re.compile(r'\b[0-9a-fA-F]{1,4}::[0-9a-fA-F]{1,4}(?=\s|\W|$)'),
+    re.compile(r'\b[0-9a-fA-F]{1,4}::[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4})*(?=\s|\W|$)'),
     
     # IPv6 with compression ending - multiple segment counts
     re.compile(r'\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4}){1,}::(?=\s|\W|$)'),
@@ -55,18 +58,22 @@ DEFANGED_IPV6_PATTERNS = [
     # Defanged IPv6 loopback: [::]1
     re.compile(r'\b\[::\]1(?=\s|\W|$)'),
     
+    # Defanged link-local addresses
+    re.compile(r'\bfe80\[::\][0-9a-fA-F]{1,4}\[:\][0-9a-fA-F]{1,4}\[:\][0-9a-fA-F]{1,4}\[:\][0-9a-fA-F]{1,4}(?:%\d+)?(?=\s|\W|$)'),
+    re.compile(r'\bfe80\[::\][0-9a-fA-F:[\]]+(?:%\d+)?(?=\s|\W|$)'),
+    
     # Defanged IPv6 with compression - MULTIPLE patterns for different segment counts
     # Pattern: 2603[:]10a6[:]20b[:]467[:]cafe[::]1 (5+ segments before [::])
-    re.compile(r'\b[0-9a-fA-F]{1,4}(?:\[:\][0-9a-fA-F]{1,4}){4,}\[::\][0-9a-fA-F]{1,4}(?=\s|\W|$)'),
+    re.compile(r'\b[0-9a-fA-F]{1,4}(?:\[:\][0-9a-fA-F]{1,4}){4,}\[::\][0-9a-fA-F]{1,4}(?:\[:\][0-9a-fA-F]{1,4})*(?=\s|\W|$)'),
     
     # Pattern: 2603[:]10a6[:]e10[:]39[::]d6 (3-4 segments before [::])
-    re.compile(r'\b[0-9a-fA-F]{1,4}(?:\[:\][0-9a-fA-F]{1,4}){2,3}\[::\][0-9a-fA-F]{1,4}(?=\s|\W|$)'),
+    re.compile(r'\b[0-9a-fA-F]{1,4}(?:\[:\][0-9a-fA-F]{1,4}){2,3}\[::\][0-9a-fA-F]{1,4}(?:\[:\][0-9a-fA-F]{1,4})*(?=\s|\W|$)'),
     
     # Pattern: 2603[:]10a6[::]d6 (2 segments before [::])
-    re.compile(r'\b[0-9a-fA-F]{1,4}\[:\][0-9a-fA-F]{1,4}\[::\][0-9a-fA-F]{1,4}(?=\s|\W|$)'),
+    re.compile(r'\b[0-9a-fA-F]{1,4}\[:\][0-9a-fA-F]{1,4}\[::\][0-9a-fA-F]{1,4}(?:\[:\][0-9a-fA-F]{1,4})*(?=\s|\W|$)'),
     
     # Pattern: 2603[::]d6 (1 segment before [::])
-    re.compile(r'\b[0-9a-fA-F]{1,4}\[::\][0-9a-fA-F]{1,4}(?=\s|\W|$)'),
+    re.compile(r'\b[0-9a-fA-F]{1,4}\[::\][0-9a-fA-F]{1,4}(?:\[:\][0-9a-fA-F]{1,4})*(?=\s|\W|$)'),
     
     # Defanged IPv6 with compression ending: 2603[:]10a6[:]e10[:]39[::]
     re.compile(r'\b[0-9a-fA-F]{1,4}(?:\[:\][0-9a-fA-F]{1,4}){1,}\[::\](?=\s|\W|$)'),

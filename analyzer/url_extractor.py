@@ -391,28 +391,24 @@ def safe_virustotal_request(url, headers, original_url):
     
     return None
 
-def safe_handle_rate_limit(url):
+def safe_handle_rate_limit(url):  # Also fix in url_extractor.py
     """Safely handle VirusTotal rate limiting with user choice."""
     try:
         while True:
             try:
-                if COMPATIBLE_OUTPUT:
-                    print_status("VirusTotal API rate limit reached.", "warning")
-                    choice = input("Type 'wait' to wait 60 seconds, or 'skip' to proceed without checking: ").strip().lower()
-                else:
-                    choice = input(
-                        "VirusTotal API rate limit reached.\n"
-                        "Type 'wait' to wait 60 seconds, or 'skip' to proceed without checking: "
-                    ).strip().lower()
+                choice = input(
+                    "VirusTotal API rate limit reached.\n"
+                    "Type 'wait' to wait 60 seconds, or 'skip' (or press Enter) to proceed without checking: "
+                ).strip().lower()
                 
                 if choice == "wait":
                     print("Waiting 60 seconds...")
                     time.sleep(60)
                     return "wait"
-                elif choice == "skip":
+                elif choice == "skip" or choice == "":  # FIXED: Accept empty input as skip
                     return "skip"
                 else:
-                    print("Invalid input. Please type 'wait' or 'skip'.")
+                    print("Invalid input. Please type 'wait', 'skip', or press Enter.")
             except (KeyboardInterrupt, EOFError):
                 print("\nSkipping due to user interruption.")
                 return "skip"

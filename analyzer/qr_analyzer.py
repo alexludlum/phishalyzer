@@ -171,27 +171,27 @@ def check_url_virustotal_qr(url, api_key, cache):
     try:
         response = requests.get(api_url, headers=headers, timeout=10)
         if response.status_code == 429:
-            while True:
-                if COMPATIBLE_OUTPUT:
-                    print_status("VirusTotal API rate limit reached.", "warning")
-                    choice = input("Type 'wait' to wait 60 seconds, or 'skip' to proceed without checking: ").strip().lower()
-                else:
-                    choice = input(
-                        "VirusTotal API rate limit reached.\n"
-                        "Type 'wait' to wait 60 seconds, or 'skip' to proceed without checking: "
-                    ).strip().lower()
-                    
-                if choice == "wait":
-                    print("Waiting 60 seconds...")
-                    time.sleep(60)
-                    response = requests.get(api_url, headers=headers, timeout=10)
-                    if response.status_code != 429:
-                        break
-                elif choice == "skip":
-                    cache[url] = ("unchecked", "URL will need to be investigated manually")
-                    return cache[url]
-                else:
-                    print("Invalid input. Please type 'wait' or 'skip'.")
+                while True:
+                    if COMPATIBLE_OUTPUT:
+                        print_status("VirusTotal API rate limit reached.", "warning")
+                        choice = input("Type 'wait' to wait 60 seconds, or 'skip' (or press Enter) to proceed without checking: ").strip().lower()
+                    else:
+                        choice = input(
+                            "VirusTotal API rate limit reached.\n"
+                            "Type 'wait' to wait 60 seconds, or 'skip' (or press Enter) to proceed without checking: "
+                        ).strip().lower()
+                        
+                    if choice == "wait":
+                        print("Waiting 60 seconds...")
+                        time.sleep(60)
+                        response = requests.get(api_url, headers=headers, timeout=10)
+                        if response.status_code != 429:
+                            break
+                    elif choice == "skip" or choice == "":  # FIXED: Accept empty input as skip
+                        cache[url] = ("unchecked", "URL will need to be investigated manually")
+                        return cache[url]
+                    else:
+                        print("Invalid input. Please type 'wait', 'skip', or press Enter.")
 
         if response.status_code == 200:
             data = response.json()

@@ -815,7 +815,7 @@ def generate_comprehensive_html_report(file_path, file_type, use_defanged):
         }}
         
         .report-header {{
-            color: #2472c8;
+            color: #cccccc;
             font-weight: bold;
             border-bottom: 1px solid #333333;
             padding-bottom: 20px;
@@ -835,11 +835,11 @@ def generate_comprehensive_html_report(file_path, file_type, use_defanged):
     <div class="terminal-container">
         <div class="report-header"><span style="color: #2472c8;">EMAIL ANALYSIS REPORT</span>
 
-Generated: {timestamp}
-File: {escape_html(email_filename)}
-Size: {file_size}
-Type: {file_type.upper()}
-SHA256: {file_hash}
+<span style="color: #2472c8;">Generated:</span> {timestamp}
+<span style="color: #2472c8;">File:</span> {escape_html(email_filename)}
+<span style="color: #2472c8;">Size:</span> {file_size}
+<span style="color: #2472c8;">Type:</span> {file_type.upper()}
+<span style="color: #2472c8;">SHA256:</span> {file_hash}
 <span style="color: #2472c8;">Output:</span> {'Defanged' if use_defanged else 'Fanged'}</div>
 """
 

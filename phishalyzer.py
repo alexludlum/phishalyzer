@@ -1314,7 +1314,7 @@ def display_comprehensive_executive_summary(comprehensive_findings):
             print("CRITICAL SECURITY THREATS:")
         for threat in comprehensive_findings['critical_threats']:
             escaped_threat = output.escape(threat) if COMPATIBLE_OUTPUT else threat
-            print(f"• {escaped_threat}")
+            print(f"- {escaped_threat}")
         print()
     
     # High Risk Indicators Section
@@ -1325,7 +1325,7 @@ def display_comprehensive_executive_summary(comprehensive_findings):
             print("HIGH RISK INDICATORS:")
         for indicator in comprehensive_findings['high_risk_indicators']:
             escaped_indicator = output.escape(indicator) if COMPATIBLE_OUTPUT else indicator
-            print(f"• {escaped_indicator}")
+            print(f"- {escaped_indicator}")
         print()
     
     # Suspicious Activity Section
@@ -1336,7 +1336,7 @@ def display_comprehensive_executive_summary(comprehensive_findings):
             print("SUSPICIOUS ACTIVITY:")
         for activity in comprehensive_findings['suspicious_activity']:
             escaped_activity = output.escape(activity) if COMPATIBLE_OUTPUT else activity
-            print(f"• {escaped_activity}")
+            print(f"- {escaped_activity}")
         print()
     
     # Manual Verification Required Section
@@ -1347,7 +1347,7 @@ def display_comprehensive_executive_summary(comprehensive_findings):
             print("ITEMS REQUIRING MANUAL VERIFICATION:")
         for item in comprehensive_findings['manual_verification_required']:
             escaped_item = output.escape(item) if COMPATIBLE_OUTPUT else item
-            print(f"• {escaped_item}")
+            print(f"- {escaped_item}")
         print()
     
     # Authentication & Infrastructure Concerns Section
@@ -1358,7 +1358,7 @@ def display_comprehensive_executive_summary(comprehensive_findings):
             print("AUTHENTICATION & INFRASTRUCTURE CONCERNS:")
         for concern in comprehensive_findings['authentication_infrastructure_concerns']:
             escaped_concern = output.escape(concern) if COMPATIBLE_OUTPUT else concern
-            print(f"• {escaped_concern}")
+            print(f"- {escaped_concern}")
         print()
     
     # Final Verdict Section
@@ -1381,7 +1381,7 @@ def display_comprehensive_executive_summary(comprehensive_findings):
 
     for reason in reasons:
         escaped_reason = output.escape(reason) if COMPATIBLE_OUTPUT else reason
-        print(f"• {escaped_reason}")
+        print(f"- {escaped_reason}")
     
     # Show nothing found message only if truly nothing was found
     total_findings = (len(comprehensive_findings['critical_threats']) + 

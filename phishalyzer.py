@@ -1,6 +1,7 @@
 import argparse
 import os
 import sys
+import platform
 from analyzer import parser
 from analyzer import header_analyzer
 from analyzer import ioc_extractor
@@ -8,12 +9,7 @@ from analyzer import url_extractor
 from analyzer import attachment_analyzer
 from analyzer import body_analyzer
 from analyzer import defanger
-
-try:
-    from analyzer import html_exporter
-    HTML_EXPORT_AVAILABLE = True
-except ImportError:
-    HTML_EXPORT_AVAILABLE = False
+from datetime import datetime
 
 # Import the universal output system
 try:
@@ -476,7 +472,7 @@ def run_analysis(file_path, vt_api_key):
         last_ip_analysis_results = None
         last_header_analysis = None
         
-        # Store analyzed file info for export
+        # Store analyzed file info for potential future use
         last_analyzed_file_path = file_path
         
         # Validate file path
@@ -1154,16 +1150,12 @@ def compile_comprehensive_findings():
         except Exception as e:
             print(f"Warning: Error processing body analysis: {e}")
     
-    # Attachment Analysis - Comprehensive threat categorization
     # Attachment Analysis - Comprehensive threat categorization with debugging
     if attachment_results:
         try:
             # Enhanced filtering and debugging
             all_attachments = [a for a in attachment_results if a is not None]
             valid_attachments = [a for a in all_attachments if isinstance(a, dict)]
-            
-            # Debug: Print what we're actually getting
-            print(f"Debug: Found {len(all_attachments)} total attachments, {len(valid_attachments)} valid")
             
             if valid_attachments:
                 # Process ALL attachments regardless of their current categorization
@@ -1174,9 +1166,6 @@ def compile_comprehensive_findings():
                     threat_level = att.get('threat_level', 'low')
                     is_spoofed = att.get('is_spoofed', False)
                     spoof_description = att.get('spoof_description', '')
-                    
-                    # Debug: Print each attachment's details
-                    print(f"Debug: Processing {filename} - VT: {vt_verdict}, Threat: {threat_level}, Spoofed: {is_spoofed}")
                     
                     # CRITICAL THREATS
                     if threat_level == 'critical':
@@ -1219,14 +1208,412 @@ def compile_comprehensive_findings():
                         findings['manual_verification_required'].append(
                             f"Unchecked attachment: {filename} - {reason}"
                         )
-                
-                # Debug: Print final counts
-                print(f"Debug: Final counts - Critical: {len(findings['critical_threats'])}, High Risk: {len(findings['high_risk_indicators'])}, Suspicious: {len(findings['suspicious_activity'])}, Manual: {len(findings['manual_verification_required'])}")
                             
         except Exception as e:
             print(f"Warning: Error processing attachment analysis: {e}")
     
     return findings
+
+def get_desktop_path():
+    """Get the desktop path for Windows, Mac, and Linux."""
+    system = platform.system()
+    if system == "Windows":
+        return os.path.join(os.path.expanduser("~"), "Desktop")
+    elif system == "Darwin":  # macOS
+        return os.path.join(os.path.expanduser("~"), "Desktop")
+    else:  # Linux and others
+        # Try common desktop locations
+        desktop_paths = [
+            os.path.join(os.path.expanduser("~"), "Desktop"),
+            os.path.join(os.path.expanduser("~"), "desktop"),
+            os.path.expanduser("~")  # fallback to home directory
+        ]
+        for path in desktop_paths:
+            if os.path.exists(path):
+                return path
+        return os.path.expanduser("~")  # ultimate fallback
+
+def generate_zendesk_report():
+    """Generate a comprehensive Zendesk-ready report of the email analysis."""
+    global last_url_analysis_results, last_received_hops, last_body_analysis_results
+    global last_attachment_results, last_analyzed_file_path, last_analyzed_file_type
+    global last_ip_analysis_results, last_header_analysis
+    
+    # Check if any analysis has been run
+    if not any([last_url_analysis_results, last_body_analysis_results, last_attachment_results, 
+                last_ip_analysis_results, last_received_hops]):
+        if COMPATIBLE_OUTPUT:
+            print_status("No analysis results available. Run an analysis first.", "warning")
+        else:
+            print("No analysis results available. Run an analysis first.")
+        return
+    
+    try:
+        # Generate filename
+        current_date = datetime.now().strftime("%m.%d.%Y")
+        filename = f"email_analysis_{current_date}.txt"
+        desktop_path = get_desktop_path()
+        file_path = os.path.join(desktop_path, filename)
+        
+        # Build report content
+        report_lines = []
+        
+        # Email Header Section
+        report_lines.append("# Email Analysis Report")
+        report_lines.append("")
+        
+        # File Information
+        if last_analyzed_file_path:
+            file_name = os.path.basename(last_analyzed_file_path)
+            try:
+                file_size = os.path.getsize(last_analyzed_file_path)
+                size_str = f"{file_size:,} bytes"
+                if file_size > 1024:
+                    size_str += f" ({file_size / 1024:.1f} KB)"
+                if file_size > 1024 * 1024:
+                    size_str += f" ({file_size / (1024 * 1024):.1f} MB)"
+            except:
+                size_str = "Unknown"
+            
+            file_type = last_analyzed_file_type or "Unknown"
+            
+            report_lines.append("## Email File Information")
+            report_lines.append(f"**Filename:** {file_name}")
+            report_lines.append(f"**File Type:** {file_type}")
+            report_lines.append(f"**File Size:** {size_str}")
+            report_lines.append("")
+        
+        # Get comprehensive findings for verdict
+        comprehensive_findings = compile_comprehensive_findings()
+        verdict, reasons = determine_final_verdict(comprehensive_findings)
+        
+        # Extract one-word verdict
+        if "CRITICAL" in verdict:
+            one_word_verdict = "Malicious"
+        elif "HIGH" in verdict:
+            one_word_verdict = "Suspicious"
+        elif "MEDIUM" in verdict or "LOW-MEDIUM" in verdict:
+            one_word_verdict = "Suspicious"
+        else:
+            one_word_verdict = "Benign"
+        
+        # Verdict Section
+        report_lines.append("## Security Verdict")
+        report_lines.append(f"**Classification:** {one_word_verdict}")
+        report_lines.append("")
+        report_lines.append("**Supporting Analysis:**")
+        for reason in reasons:
+            report_lines.append(f"- {reason}")
+        report_lines.append("")
+        
+        # Header Analysis Section
+        report_lines.append("## Email Header Analysis")
+        
+        # Authentication Results
+        auth_issues = []
+        auth_passes = []
+        if last_header_analysis and isinstance(last_header_analysis, dict):
+            malicious_factors = last_header_analysis.get('malicious_factors', [])
+            warning_factors = last_header_analysis.get('warning_factors', [])
+            benign_factors = last_header_analysis.get('benign_factors', [])
+            
+            auth_issues.extend(malicious_factors)
+            auth_issues.extend(warning_factors)
+            auth_passes.extend(benign_factors)
+        
+        if auth_issues:
+            report_lines.append("**Authentication Issues:**")
+            for issue in auth_issues:
+                report_lines.append(f"- {issue}")
+            report_lines.append("")
+        
+        if auth_passes:
+            report_lines.append("**Authentication Successes:**")
+            for success in auth_passes:
+                report_lines.append(f"- {success}")
+            report_lines.append("")
+        
+        # Email Routing (if available)
+        if last_received_hops and isinstance(last_received_hops, list):
+            report_lines.append("**Email Routing:**")
+            report_lines.append(f"- {len(last_received_hops)} routing hop{'s' if len(last_received_hops) != 1 else ''} identified")
+            
+            # Show first few hops with IPs highlighted
+            for i, hop in enumerate(last_received_hops[:3]):
+                raw_content = hop.get('raw', hop.get('content', ''))
+                # Extract IPs from hop content
+                import re
+                ips = re.findall(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', raw_content)
+                if ips:
+                    # Apply defanging if needed
+                    display_ips = []
+                    for ip in ips[:2]:  # Show first 2 IPs
+                        if output_mode == "defanged":
+                            display_ips.append(apply_defanging_for_findings(ip))
+                        else:
+                            display_ips.append(ip)
+                    report_lines.append(f"  - Hop {i+1}: {', '.join(display_ips)}")
+            
+            if len(last_received_hops) > 3:
+                report_lines.append(f"  - ... and {len(last_received_hops) - 3} additional hops")
+            report_lines.append("")
+        
+        # IP Analysis Section
+        if last_ip_analysis_results and isinstance(last_ip_analysis_results, list):
+            report_lines.append("## IP Address Analysis")
+            
+            malicious_ips = []
+            suspicious_ips = []
+            unchecked_ips = []
+            benign_ips = []
+            
+            for ip_data in last_ip_analysis_results:
+                if ip_data and isinstance(ip_data, (list, tuple)) and len(ip_data) >= 3:
+                    ip, country, verdict = ip_data[:3]
+                    comment = ip_data[3] if len(ip_data) > 3 else ""
+                    
+                    # Apply defanging if needed
+                    display_ip = apply_defanging_for_findings(ip) if output_mode == "defanged" else ip
+                    
+                    if verdict == 'malicious':
+                        malicious_ips.append(f"{display_ip} ({country}) - {comment}")
+                    elif verdict == 'suspicious':
+                        suspicious_ips.append(f"{display_ip} ({country}) - {comment}")
+                    elif verdict == 'unchecked' and country != 'Private':
+                        unchecked_ips.append(f"{display_ip} ({country})")
+                    elif verdict == 'benign':
+                        benign_ips.append(f"{display_ip} ({country})")
+            
+            if malicious_ips:
+                report_lines.append("**Malicious IP Addresses:**")
+                for ip_info in malicious_ips:
+                    report_lines.append(f"- {ip_info}")
+                report_lines.append("")
+            
+            if suspicious_ips:
+                report_lines.append("**Suspicious IP Addresses:**")
+                for ip_info in suspicious_ips:
+                    report_lines.append(f"- {ip_info}")
+                report_lines.append("")
+            
+            if unchecked_ips:
+                report_lines.append("**Unchecked IP Addresses:**")
+                for ip_info in unchecked_ips:
+                    report_lines.append(f"- {ip_info}")
+                report_lines.append("")
+            
+            if benign_ips:
+                report_lines.append("**Benign IP Addresses:**")
+                for ip_info in benign_ips:
+                    report_lines.append(f"- {ip_info}")
+                report_lines.append("")
+        
+        # URL Analysis Section
+        email_urls = last_url_analysis_results or []
+        attachment_urls = []
+        
+        # Extract URL data from attachment results
+        if last_attachment_results:
+            for attachment in last_attachment_results:
+                if attachment and isinstance(attachment, dict):
+                    content_analysis = attachment.get('attachment_content_analysis', {})
+                    if content_analysis.get('url_analysis', {}).get('results'):
+                        attachment_urls.append({
+                            'attachment_name': attachment.get('filename', 'unknown'),
+                            'attachment_index': attachment.get('index', '?'),
+                            'url_results': content_analysis['url_analysis']['results']
+                        })
+        
+        if email_urls or attachment_urls:
+            report_lines.append("## URL Analysis")
+            
+            # Email URLs
+            if email_urls:
+                report_lines.append("**URLs from Email Body:**")
+                
+                for result in email_urls:
+                    if result and isinstance(result, dict):
+                        domain = result.get('domain', 'unknown')
+                        verdict = result.get('verdict', 'unknown')
+                        url_count = result.get('url_count', len(result.get('urls', [])))
+                        urls = result.get('urls', [])
+                        
+                        # Apply defanging if needed
+                        display_domain = apply_defanging_for_findings(domain) if output_mode == "defanged" else domain
+                        
+                        report_lines.append(f"- **{display_domain}** ({verdict.upper()}) - {url_count} URL{'s' if url_count != 1 else ''}")
+                        
+                        # Show sample URLs
+                        for url in urls[:2]:  # Show first 2 URLs
+                            display_url = apply_defanging_for_findings(url) if output_mode == "defanged" else url
+                            report_lines.append(f"  - {display_url}")
+                        if len(urls) > 2:
+                            report_lines.append(f"  - ... and {len(urls) - 2} more")
+                
+                report_lines.append("")
+            
+            # Attachment URLs
+            if attachment_urls:
+                report_lines.append("**URLs from Attachments:**")
+                
+                for attachment_data in attachment_urls:
+                    attachment_name = attachment_data['attachment_name']
+                    url_results = attachment_data['url_results']
+                    
+                    display_attachment_name = apply_defanging_for_findings(attachment_name) if output_mode == "defanged" else attachment_name
+                    report_lines.append(f"- **From {display_attachment_name}:**")
+                    
+                    for result in url_results:
+                        domain = result['domain']
+                        verdict = result['verdict']
+                        url_count = len(result['urls'])
+                        
+                        display_domain = apply_defanging_for_findings(domain) if output_mode == "defanged" else domain
+                        report_lines.append(f"  - {display_domain} ({verdict.upper()}) - {url_count} URL{'s' if url_count != 1 else ''}")
+                
+                report_lines.append("")
+        
+        # Email Body Analysis Section
+        if last_body_analysis_results and isinstance(last_body_analysis_results, dict):
+            findings = last_body_analysis_results.get('findings', {})
+            risk_score = last_body_analysis_results.get('risk_score', 0)
+            
+            if findings:
+                report_lines.append("## Email Body Analysis")
+                report_lines.append(f"**Content Risk Score:** {risk_score}/100")
+                report_lines.append("")
+                
+                # Group by risk level
+                high_risk_findings = []
+                medium_risk_findings = []
+                low_risk_findings = []
+                
+                for finding_key, finding_data in findings.items():
+                    if isinstance(finding_data, dict):
+                        risk_level = finding_data.get('risk_level')
+                        name = finding_data.get('name')
+                        keyword_count = finding_data.get('keyword_count', 0)
+                        
+                        if risk_level == 'HIGH':
+                            high_risk_findings.append(f"{name} ({keyword_count} indicators)")
+                        elif risk_level == 'MEDIUM':
+                            medium_risk_findings.append(f"{name} ({keyword_count} indicators)")
+                        elif risk_level == 'LOW':
+                            low_risk_findings.append(f"{name} ({keyword_count} indicators)")
+                
+                if high_risk_findings:
+                    report_lines.append("**High Risk Content:**")
+                    for finding in high_risk_findings:
+                        report_lines.append(f"- {finding}")
+                    report_lines.append("")
+                
+                if medium_risk_findings:
+                    report_lines.append("**Medium Risk Content:**")
+                    for finding in medium_risk_findings:
+                        report_lines.append(f"- {finding}")
+                    report_lines.append("")
+                
+                if low_risk_findings:
+                    report_lines.append("**Low Risk Content:**")
+                    for finding in low_risk_findings:
+                        report_lines.append(f"- {finding}")
+                    report_lines.append("")
+        
+        # Attachment Analysis Section
+        if last_attachment_results and isinstance(last_attachment_results, list):
+            valid_attachments = [a for a in last_attachment_results if a is not None and isinstance(a, dict)]
+            
+            if valid_attachments:
+                report_lines.append("## Attachment Analysis")
+                
+                critical_attachments = []
+                high_risk_attachments = []
+                medium_risk_attachments = []
+                benign_attachments = []
+                
+                for att in valid_attachments:
+                    filename = att.get('filename', 'unknown')
+                    threat_level = att.get('threat_level', 'low')
+                    vt_verdict = att.get('vt_verdict', 'unknown')
+                    vt_comment = att.get('vt_comment', '')
+                    is_spoofed = att.get('is_spoofed', False)
+                    spoof_description = att.get('spoof_description', '')
+                    size = att.get('size', 0)
+                    file_hash = att.get('hash', 'N/A')
+                    
+                    # Format size
+                    size_str = f"{size:,} bytes" if size > 0 else "0 bytes"
+                    
+                    attachment_info = f"**{filename}** ({size_str})"
+                    
+                    if file_hash != "N/A":
+                        attachment_info += f" - SHA256: {file_hash[:16]}..."
+                    
+                    if threat_level == 'critical' or vt_verdict == 'malicious':
+                        if threat_level == 'critical':
+                            attachment_info += f" - {spoof_description}"
+                        else:
+                            attachment_info += f" - {vt_comment}"
+                        critical_attachments.append(attachment_info)
+                    elif threat_level == 'high' or vt_verdict == 'suspicious':
+                        if is_spoofed:
+                            attachment_info += f" - {spoof_description}"
+                        else:
+                            attachment_info += f" - {vt_comment}"
+                        high_risk_attachments.append(attachment_info)
+                    elif threat_level == 'medium' or is_spoofed:
+                        attachment_info += f" - {spoof_description or 'File type inconsistency'}"
+                        medium_risk_attachments.append(attachment_info)
+                    else:
+                        if vt_verdict == 'benign':
+                            attachment_info += f" - {vt_comment}"
+                        elif vt_verdict in ['unknown', 'unchecked']:
+                            attachment_info += " - Not found in threat database"
+                        benign_attachments.append(attachment_info)
+                
+                if critical_attachments:
+                    report_lines.append("**Critical Threat Attachments:**")
+                    for att_info in critical_attachments:
+                        report_lines.append(f"- {att_info}")
+                    report_lines.append("")
+                
+                if high_risk_attachments:
+                    report_lines.append("**High Risk Attachments:**")
+                    for att_info in high_risk_attachments:
+                        report_lines.append(f"- {att_info}")
+                    report_lines.append("")
+                
+                if medium_risk_attachments:
+                    report_lines.append("**Medium Risk Attachments:**")
+                    for att_info in medium_risk_attachments:
+                        report_lines.append(f"- {att_info}")
+                    report_lines.append("")
+                
+                if benign_attachments:
+                    report_lines.append("**Other Attachments:**")
+                    for att_info in benign_attachments:
+                        report_lines.append(f"- {att_info}")
+                    report_lines.append("")
+        
+        # Footer
+        report_lines.append("---")
+        report_lines.append(f"*Report generated on {datetime.now().strftime('%B %d, %Y at %I:%M %p')}*")
+        report_lines.append(f"*Analysis tool: Phishalyzer*")
+        
+        # Write report to file
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(report_lines))
+        
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Report generated successfully: {file_path}", "success")
+        else:
+            print(f"Report generated successfully: {file_path}")
+        
+    except Exception as e:
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Error generating report: {e}", "error")
+        else:
+            print(f"Error generating report: {e}")
 
 def determine_final_verdict(comprehensive_findings):
     """Determine final verdict based on comprehensive findings"""
@@ -1494,11 +1881,6 @@ def main():
                 if has_any_results:
                     next_num = str(len(menu_options) + 4)
                     menu_options.append((next_num, "Generate executive summary"))
-                
-                # NEW: Add export option if analysis has been run and export is available
-                if has_any_results and HTML_EXPORT_AVAILABLE:
-                    next_num = str(len(menu_options) + 4)
-                    menu_options.append((next_num, "Export findings"))
 
                 exit_num = str(len(menu_options) + 4)
                 max_option = int(exit_num)
@@ -1614,21 +1996,6 @@ def main():
                                 print_status(f"Error generating executive summary: {e}", "error")
                             else:
                                 print(f"Error generating executive summary: {e}")
-                    elif selected_option == "Export findings":
-                        # NEW: Handle export option
-                        try:
-                            if HTML_EXPORT_AVAILABLE:
-                                html_exporter.export_analysis_report()
-                            else:
-                                if COMPATIBLE_OUTPUT:
-                                    print_status("Export functionality not available. Check html_exporter module.", "error")
-                                else:
-                                    print("Export functionality not available. Check html_exporter module.")
-                        except Exception as e:
-                            if COMPATIBLE_OUTPUT:
-                                print_status(f"Error in export functionality: {e}", "error")
-                            else:
-                                print(f"Error in export functionality: {e}")
                     elif choice == exit_num:
                         print("Exiting.")
                         break

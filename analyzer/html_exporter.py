@@ -656,9 +656,9 @@ def generate_detailed_url_breakdown(url_results, use_defanged=True):
                         else:
                             display_urls.append(url)
                     
-                    breakdown_lines.append(f"  {display_domain} ({len(urls)} URLs):")
+                    breakdown_lines.append(f"- {display_domain} ({len(urls)} URLs):")
                     for i, url in enumerate(display_urls, 1):
-                        breakdown_lines.append(f"    {i:2}. {url}")
+                        breakdown_lines.append(f"     {i}. {url}")
     
     # Add final blank line if we generated any breakdown content
     if breakdown_lines:
@@ -942,15 +942,15 @@ def prompt_export_format():
         while True:
             if COMPATIBLE_OUTPUT:
                 output.print("\n[blue]Export Format:[/blue]")
-                output.print("[blue]1:[/blue] Complete Terminal Report (HTML)")
-                output.print("[blue]2:[/blue] Markdown Report (coming soon)")
-                output.print("[blue]3:[/blue] Plaintext Report (coming soon)")
+                output.print("[blue]1:[/blue] Terminal Report (HTML)")
+                output.print("[blue]2:[/blue] Markdown Report")
+                output.print("[blue]3:[/blue] Plaintext Report")
                 output.print("[blue]4:[/blue] Return to main menu")
             else:
                 print("\nExport Format:")
-                print("1: Complete Terminal Report (HTML)")
-                print("2: Markdown Report (coming soon)")
-                print("3: Plaintext Report (coming soon)")
+                print("1: Terminal Report (HTML)")
+                print("2: Markdown Report")
+                print("3: Plaintext Report")
                 print("4: Return to main menu")
             
             try:

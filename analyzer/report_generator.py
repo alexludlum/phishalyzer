@@ -55,42 +55,93 @@ def safe_defang_for_report(text, output_mode):
         if not text or not isinstance(text, str):
             return str(text) if text is not None else ""
         
-        if output_mode == "defanged" and DEFANGER_AVAILABLE:
-            # Use the defanger module for consistent defanging
-            return defanger.defang_text(str(text))
+        if output_mode == "defanged":
+            if DEFANGER_AVAILABLE:
+                # Use the defanger module for consistent defanging
+                result = defanger.defang_text(str(text))
+                # Double-check that common cases are handled
+                if '.' in result and '[.]' not in result:
+                    # Apply additional defanging if the module missed something
+                    result = manual_defang_domains(result)
+                return result
+            else:
+                # Comprehensive fallback manual defanging
+                return manual_defang_domains(str(text))
         else:
             return str(text)
     except Exception:
-        # Fallback manual defanging if defanger module fails
-        if output_mode == "defanged":
-            result = str(text)
-            # Basic defanging patterns
-            result = result.replace('https://', 'https[:]//')
-            result = result.replace('http://', 'http[:]//') 
-            result = result.replace('ftp://', 'ftp[:]//') 
-            result = result.replace('.com', '[.]com')
-            result = result.replace('.net', '[.]net')
-            result = result.replace('.org', '[.]org')
-            result = result.replace('.edu', '[.]edu')
-            result = result.replace('.gov', '[.]gov')
-            result = result.replace('.mil', '[.]mil')
-            result = result.replace('.io', '[.]io')
-            result = result.replace('.me', '[.]me')
-            result = result.replace('.uk', '[.]uk')
-            result = result.replace('.de', '[.]de')
-            result = result.replace('.fr', '[.]fr')
-            result = result.replace('.ru', '[.]ru')
-            result = result.replace('.cn', '[.]cn')
-            result = result.replace('.jp', '[.]jp')
-            result = result.replace('.au', '[.]au')
-            result = result.replace('.ca', '[.]ca')
-            result = result.replace('.info', '[.]info')
-            result = result.replace('.biz', '[.]biz')
-            result = result.replace('.tv', '[.]tv')
-            result = result.replace('.cc', '[.]cc')
-            return result
-        else:
-            return str(text)
+        return str(text)
+
+def manual_defang_domains(text):
+    """Manual defanging function that catches all domain patterns."""
+    import re
+    
+    result = str(text)
+    
+    # Replace protocols first
+    result = result.replace('https://', 'https[:]//')
+    result = result.replace('http://', 'http[:]//') 
+    result = result.replace('ftp://', 'ftp[:]//') 
+    
+    # Comprehensive TLD replacement - order matters (longer first)
+    tld_replacements = [
+        # Multi-part TLDs first
+        ('.co.uk', '[.]co[.]uk'), ('.co.jp', '[.]co[.]jp'), ('.co.kr', '[.]co[.]kr'),
+        ('.co.in', '[.]co[.]in'), ('.co.za', '[.]co[.]za'), ('.co.au', '[.]co[.]au'),
+        ('.co.nz', '[.]co[.]nz'), ('.co.id', '[.]co[.]id'), ('.co.th', '[.]co[.]th'),
+        ('.gov.uk', '[.]gov[.]uk'), ('.gov.au', '[.]gov[.]au'), ('.gov.ca', '[.]gov[.]ca'),
+        ('.edu.au', '[.]edu[.]au'), ('.edu.cn', '[.]edu[.]cn'), ('.ac.uk', '[.]ac[.]uk'),
+        ('.org.uk', '[.]org[.]uk'), ('.net.au', '[.]net[.]au'), ('.com.au', '[.]com[.]au'),
+        ('.com.br', '[.]com[.]br'), ('.com.cn', '[.]com[.]cn'), ('.com.mx', '[.]com[.]mx'),
+        ('.museum', '[.]museum'), ('.travel', '[.]travel'), ('.website', '[.]website'),
+        
+        # Single TLDs
+        ('.com', '[.]com'), ('.net', '[.]net'), ('.org', '[.]org'),
+        ('.edu', '[.]edu'), ('.gov', '[.]gov'), ('.mil', '[.]mil'),
+        ('.int', '[.]int'), ('.io', '[.]io'), ('.me', '[.]me'),
+        ('.uk', '[.]uk'), ('.de', '[.]de'), ('.fr', '[.]fr'),
+        ('.ru', '[.]ru'), ('.cn', '[.]cn'), ('.jp', '[.]jp'),
+        ('.au', '[.]au'), ('.ca', '[.]ca'), ('.info', '[.]info'),
+        ('.biz', '[.]biz'), ('.tv', '[.]tv'), ('.cc', '[.]cc'),
+        ('.co', '[.]co'), ('.us', '[.]us'), ('.eu', '[.]eu'),
+        ('.asia', '[.]asia'), ('.name', '[.]name'), ('.pro', '[.]pro'),
+        ('.mobi', '[.]mobi'), ('.aero', '[.]aero'), ('.coop', '[.]coop'), 
+        ('.jobs', '[.]jobs'), ('.tel', '[.]tel'), ('.xxx', '[.]xxx'), 
+        ('.post', '[.]post'), ('.cat', '[.]cat'), ('.nyc', '[.]nyc'),
+        ('.london', '[.]london'), ('.tech', '[.]tech'), ('.online', '[.]online'),
+        ('.site', '[.]site'), ('.store', '[.]store'), ('.blog', '[.]blog'), 
+        ('.app', '[.]app'), ('.dev', '[.]dev'), ('.ai', '[.]ai'), 
+        ('.ml', '[.]ml'), ('.tk', '[.]tk'), ('.ga', '[.]ga'), 
+        ('.cf', '[.]cf'), ('.gq', '[.]gq'), ('.top', '[.]top'),
+        ('.click', '[.]click'), ('.link', '[.]link'), ('.download', '[.]download'),
+        ('.zip', '[.]zip'), ('.review', '[.]review'), ('.country', '[.]country'),
+        ('.stream', '[.]stream'), ('.trade', '[.]trade'), ('.science', '[.]science'),
+        ('.party', '[.]party'), ('.accountant', '[.]accountant'), ('.loan', '[.]loan'),
+        ('.win', '[.]win'), ('.date', '[.]date'), ('.racing', '[.]racing'),
+        ('.men', '[.]men'), ('.bid', '[.]bid'), ('.cricket', '[.]cricket'),
+        ('.faith', '[.]faith'), ('.space', '[.]space'), ('.website', '[.]website')
+    ]
+    
+    # Apply TLD replacements
+    for original, replacement in tld_replacements:
+        result = result.replace(original, replacement)
+    
+    # Catch any remaining domain patterns that weren't caught by TLD replacement
+    # Pattern: alphanumeric.alphanumeric (but not already defanged)
+    # This will catch things like "w3.org" or "imgur.com" that might have been missed
+    def defang_remaining_domains(match):
+        full_match = match.group(0)
+        # Don't re-defang already defanged content
+        if '[.]' in full_match or '[:' in full_match:
+            return full_match
+        # Replace the dot with defanged dot
+        return full_match.replace('.', '[.]')
+    
+    # Apply pattern to catch remaining domains
+    # Match: word.word where word contains letters/numbers/hyphens
+    result = re.sub(r'\b[a-zA-Z0-9-]+\.[a-zA-Z0-9-]+\b', defang_remaining_domains, result)
+    
+    return result
 
 def calculate_file_hash(file_path):
     """Calculate SHA256 hash of the original email file."""
@@ -301,8 +352,10 @@ def format_header_analysis_section(analysis_results, output_mode):
             ]
             
             for i, hop_content in enumerate(sample_hops, 1):
+                # Apply defanging to sample hops as well
+                display_hop = safe_defang_for_report(hop_content, output_mode)
                 lines.append(f"Hop {i}:")
-                lines.append(f"  {hop_content}")
+                lines.append(f"  {display_hop}")
                 lines.append("")
         
         return lines
@@ -334,6 +387,7 @@ def format_ip_analysis_section(analysis_results, output_mode):
                     ip, country, verdict = ip_data[:3]
                     comment = ip_data[3] if len(ip_data) > 3 else ""
                     
+                    # Ensure ALL IPs are consistently defanged
                     display_ip = safe_defang_for_report(ip, output_mode)
                     
                     if verdict.lower() == 'malicious':
@@ -440,7 +494,7 @@ def format_url_analysis_section(analysis_results, output_mode):
                     
                     if verdict == 'malicious':
                         malicious_urls.append(domain_info)
-                        # Show sample URLs for malicious domains
+                        # Show sample URLs for malicious domains - ensure ALL URLs are defanged
                         for i, url in enumerate(urls[:3], 1):
                             display_url = safe_defang_for_report(url, output_mode)
                             malicious_urls.append(f"  {i}. {display_url}")
@@ -656,12 +710,18 @@ def format_attachment_analysis_section(analysis_results, output_mode):
                     if malicious_count > 0:
                         lines.append(f"  - MALICIOUS: {malicious_count} domain{'s' if malicious_count != 1 else ''}")
                         
-                        # Show malicious URL details
+                        # Show malicious URL details - ensure defanging is applied
                         for result in url_analysis['results']:
                             if result.get('verdict') == 'malicious':
                                 domain = result.get('domain', 'unknown')
                                 display_domain = safe_defang_for_report(domain, output_mode)
                                 lines.append(f"    - {display_domain}")
+                                
+                                # Also defang any sample URLs if present
+                                urls = result.get('urls', [])
+                                for k, url in enumerate(urls[:2], 1):  # Show first 2 URLs
+                                    display_url = safe_defang_for_report(url, output_mode)
+                                    lines.append(f"      {k}. {display_url}")
                     elif suspicious_count > 0:
                         lines.append(f"  - SUSPICIOUS: {suspicious_count} domain{'s' if suspicious_count != 1 else ''}")
                 
@@ -681,6 +741,7 @@ def format_attachment_analysis_section(analysis_results, output_mode):
                         comment = qr['comment']
                         page = qr.get('page', 1)
                         
+                        # Ensure QR code URLs are also defanged consistently
                         display_url = safe_defang_for_report(url, output_mode)
                         
                         if page > 1:

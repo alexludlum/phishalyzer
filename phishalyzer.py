@@ -10,6 +10,7 @@ from analyzer import attachment_analyzer
 from analyzer import body_analyzer
 from analyzer import defanger
 from datetime import datetime
+from analyzer import report_generator
 
 # Import the universal output system
 try:
@@ -1816,6 +1817,62 @@ def generate_comprehensive_executive_summary():
         else:
             print(f"Error generating comprehensive executive summary: {e}")
 
+def generate_comprehensive_report():
+    """Generate a comprehensive plaintext report of all analysis results."""
+    global last_url_analysis_results, last_body_analysis_results, last_attachment_results
+    global last_ip_analysis_results, last_received_hops, last_header_analysis
+    global last_analyzed_file_path, last_analyzed_file_type, output_mode
+    
+    # Check if any analysis has been run
+    if not any([last_url_analysis_results, last_body_analysis_results, last_attachment_results, 
+                last_ip_analysis_results, last_received_hops]):
+        if COMPATIBLE_OUTPUT:
+            print_status("No analysis results available. Run an analysis first.", "warning")
+        else:
+            print("No analysis results available. Run an analysis first.")
+        return
+    
+    try:
+        if COMPATIBLE_OUTPUT:
+            print_status("Generating comprehensive report...", "info")
+        else:
+            print("Generating comprehensive report...")
+        
+        # Collect all analysis results
+        analysis_results = report_generator.collect_analysis_results()
+        
+        # Generate the report
+        report_path = report_generator.generate_plaintext_report(analysis_results, output_mode)
+        
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Report generated successfully: {report_path}", "success")
+            output.print("")
+            output.print("[blue]Report contains comprehensive analysis of:[/blue]")
+            output.print("- Email file information and security verdict")
+            output.print("- Complete header analysis and routing details")
+            output.print("- IP address reputation analysis")
+            output.print("- URL analysis from email body and attachments")
+            output.print("- Email body content and phishing pattern analysis")
+            output.print("- Detailed attachment analysis including QR codes")
+        else:
+            print(f"Report generated successfully: {report_path}")
+            print("")
+            print("Report contains comprehensive analysis of:")
+            print("- Email file information and security verdict")
+            print("- Complete header analysis and routing details")
+            print("- IP address reputation analysis")
+            print("- URL analysis from email body and attachments")
+            print("- Email body content and phishing pattern analysis")
+            print("- Detailed attachment analysis including QR codes")
+        
+    except Exception as e:
+        if COMPATIBLE_OUTPUT:
+            print_status(f"Error generating report: {e}", "error")
+            print_status("Please ensure analysis has been completed successfully.", "warning")
+        else:
+            print(f"Error generating report: {e}")
+            print("Please ensure analysis has been completed successfully.")
+
 def main():
     """Main application entry point with comprehensive error handling."""
     global output_mode, last_url_analysis_results, last_received_hops, last_body_analysis_results, last_attachment_results
@@ -1877,10 +1934,18 @@ def main():
                     valid_attachments = [a for a in last_attachment_results if a is not None and isinstance(a, dict)]
                     if valid_attachments:
                         has_any_results = True
+                elif last_ip_analysis_results and isinstance(last_ip_analysis_results, list):
+                    has_any_results = True
+                elif last_received_hops and isinstance(last_received_hops, list):
+                    has_any_results = True
                 
                 if has_any_results:
                     next_num = str(len(menu_options) + 4)
                     menu_options.append((next_num, "Generate executive summary"))
+                    
+                    # Add comprehensive report option
+                    next_num = str(len(menu_options) + 4)
+                    menu_options.append((next_num, "Generate comprehensive report"))
 
                 exit_num = str(len(menu_options) + 4)
                 max_option = int(exit_num)
@@ -1996,6 +2061,14 @@ def main():
                                 print_status(f"Error generating executive summary: {e}", "error")
                             else:
                                 print(f"Error generating executive summary: {e}")
+                    elif selected_option == "Generate comprehensive report":
+                        try:
+                            generate_comprehensive_report()
+                        except Exception as e:
+                            if COMPATIBLE_OUTPUT:
+                                print_status(f"Error generating comprehensive report: {e}", "error")
+                            else:
+                                print(f"Error generating comprehensive report: {e}")
                     elif choice == exit_num:
                         print("Exiting.")
                         break

@@ -34,6 +34,7 @@ last_analyzed_file_path = None
 last_analyzed_file_type = None
 last_ip_analysis_results = None
 last_header_analysis = None
+last_analyzed_msg_obj = None
 
 def check_defang_mode():
     """Debug function to check current defang mode"""
@@ -463,6 +464,7 @@ def run_analysis(file_path, vt_api_key):
     """Run complete email analysis with comprehensive error handling."""
     global last_url_analysis_results, last_received_hops, last_body_analysis_results, last_attachment_results
     global last_analyzed_file_path, last_analyzed_file_type, last_ip_analysis_results, last_header_analysis
+    global last_analyzed_msg_obj
     
     try:
         # Reset previous results
@@ -520,6 +522,7 @@ def run_analysis(file_path, vt_api_key):
         # Parse email file
         try:
             msg_obj, filetype = parser.load_email(file_path)
+            last_analyzed_msg_obj = msg_obj
             last_analyzed_file_type = filetype  # Store file type
             print(f"Detected file type: {filetype}")
         except Exception as e:

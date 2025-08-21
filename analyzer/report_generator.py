@@ -436,9 +436,6 @@ def format_attachment_analysis_section(analysis_results, output_mode):
             lines.append("No valid attachments to analyze.")
             return lines
         
-        lines.append(f"Found {len(valid_attachments)} attachment{'s' if len(valid_attachments) != 1 else ''}:")
-        lines.append("")
-        
         for i, att in enumerate(valid_attachments, 1):
             filename = att.get('filename', 'unknown')
             content_type = att.get('content_type', 'application/octet-stream')
@@ -483,9 +480,6 @@ def format_attachment_analysis_section(analysis_results, output_mode):
                 text_length = content_analysis.get('text_length', 0)
                 findings = content_analysis.get('findings', {})
                 url_analysis = content_analysis.get('url_analysis', {})
-                
-                if text_length > 0:
-                    lines.append(f"Text extracted: {text_length} characters")
                 
                 if findings:
                     lines.append("- Phishing content patterns detected:")
@@ -569,10 +563,6 @@ def format_attachment_analysis_section(analysis_results, output_mode):
             
             # Risk assessment (simplified)
             final_risk_level = att.get('final_risk_level', 'unknown')
-            
-            lines.append("Risk Level:")
-            lines.append(f"- {final_risk_level.upper()}")
-            lines.append("")
         
         return lines
     

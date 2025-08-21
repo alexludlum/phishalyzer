@@ -638,6 +638,7 @@ def generate_plaintext_report(analysis_results, output_mode="fanged"):
         
         # Final Verdict - Template for analyst to fill out
         report_lines.append("")
+        report_lines.append("")
         report_lines.append(format_section_header("FINAL VERDICT"))
         report_lines.append("")
         report_lines.append("Classification: [Analyst to complete]")

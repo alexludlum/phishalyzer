@@ -49,22 +49,104 @@ def format_section_header(title, total_width=75):
     right_padding = padding_needed - left_padding
     return "=" * left_padding + title_with_spaces + "=" * right_padding
 
-def safe_defang_for_report(text, output_mode):
-    """Apply defanging to text based on output mode."""
+def smart_defang_for_report(text, output_mode, context="general"):
+    """
+    FIXED: Apply selective defanging based on context with proper IPv6 handling.
+    Defang everything in defanged mode except known mail infrastructure in headers.
+    """
     try:
         if not text or not isinstance(text, str):
             return str(text) if text is not None else ""
         
-        # Use the passed output_mode parameter directly
-        if output_mode == "defanged":
-            result = str(text)
+        if output_mode != "defanged":
+            return str(text)
+        
+        result = str(text)
+        
+        # STEP 1: Defang IPv4 addresses first
+        def replace_ipv4(match):
+            ipv4 = match.group(0)
+            if re.match(r'^(\d{1,3}\.){3}\d{1,3}$', ipv4.strip()):
+                return ipv4.strip().replace('.', '[.]')
+            return ipv4
+        
+        ipv4_pattern = r'\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b'
+        result = re.sub(ipv4_pattern, replace_ipv4, result)
+        
+        # STEP 2: Defang IPv6 addresses with PROPER :: handling
+        def replace_ipv6(match):
+            ipv6 = match.group(0)
             
-            # Replace protocols
+            # Validate it looks like an IPv6 address
+            if not re.match(r'^[0-9a-fA-F:]+$', ipv6.strip()):
+                return ipv6
+            
+            result_ipv6 = ipv6.strip()
+            
+            # CRITICAL FIX: Handle :: (consecutive colons) FIRST and CORRECTLY
+            if '::' in result_ipv6:
+                # Split by :: to handle each part separately
+                parts = result_ipv6.split('::')
+                
+                if len(parts) == 2:
+                    # Process each part that has single colons
+                    left_part = parts[0]
+                    right_part = parts[1]
+                    
+                    # Replace single colons in each part
+                    if left_part:
+                        left_part = left_part.replace(':', '[:]')
+                    if right_part:
+                        right_part = right_part.replace(':', '[:]')
+                    
+                    # Rejoin with defanged double colon
+                    result_ipv6 = left_part + '[::]' + right_part
+                else:
+                    # Shouldn't happen with valid IPv6, but handle gracefully
+                    result_ipv6 = result_ipv6.replace('::', '[::]')
+                    result_ipv6 = result_ipv6.replace(':', '[:]')
+            else:
+                # No double colons, just replace all single colons
+                result_ipv6 = result_ipv6.replace(':', '[:]')
+            
+            return result_ipv6
+        
+        # Comprehensive IPv6 patterns that match all the addresses in your logs
+        ipv6_patterns = [
+            # IPv6 with compression: 2603:10b6:408:106::21
+            r'\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4})*::[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4})*\b',
+            # IPv6 with compression at end: 2603:10b6:408:106::
+            r'\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4})*::\b',
+            # IPv6 with compression at start: ::2603:10b6:408:106
+            r'\b::[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4})*\b',
+            # Full IPv6 (no compression): 2603:10b6:408:106:cafe:beef:1234:5678
+            r'\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b',
+            # 6-segment IPv6: 2603:10b6:408:106:cafe:beef
+            r'\b(?:[0-9a-fA-F]{1,4}:){5}[0-9a-fA-F]{1,4}\b',
+            # 5-segment IPv6: 2603:10b6:408:106:cafe
+            r'\b(?:[0-9a-fA-F]{1,4}:){4}[0-9a-fA-F]{1,4}\b',
+            # 4-segment IPv6: 2603:10b6:408:106 (be careful not to match timestamps)
+            r'\b(?:[0-9a-fA-F]{2,4}:){3}[0-9a-fA-F]{2,4}\b',
+            # Special case: IPv6 loopback
+            r'\b::1\b'
+        ]
+        
+        # Apply IPv6 patterns in order (most specific first)
+        for pattern in ipv6_patterns:
+            result = re.sub(pattern, replace_ipv6, result)
+        
+        # STEP 3: Handle URLs and domains (only for non-header contexts)
+        if context == "headers":
+            # For headers, only IPs are defanged (IPv4 and IPv6 already done above)
+            return result
+        
+        else:
+            # For all other contexts (URLs, QR codes, etc.), defang everything
             result = result.replace('https://', 'https[:]//') 
             result = result.replace('http://', 'http[:]//') 
             result = result.replace('ftp://', 'ftp[:]//') 
             
-            # Replace dots in domains - comprehensive list
+            # Defang all TLDs
             domain_replacements = [
                 ('.com', '[.]com'),
                 ('.net', '[.]net'),
@@ -88,20 +170,17 @@ def safe_defang_for_report(text, output_mode):
                 ('.biz', '[.]biz'),
                 ('.tv', '[.]tv'),
                 ('.cc', '[.]cc'),
-                ('.se', '[.]se'),  # Added for Swedish domains
-                ('.one', '[.]one')   # Added for .one domains
+                ('.se', '[.]se'),
+                ('.one', '[.]one')
             ]
             
             for original, replacement in domain_replacements:
                 result = result.replace(original, replacement)
             
-            # Defang IPv4 addresses
-            result = re.sub(r'\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b', r'\1[.]\2[.]\3[.]\4', result)
-            
             return result
-        else:
-            return str(text)
-    except Exception:
+            
+    except Exception as e:
+        print(f"Error in defanging: {e}")
         return str(text)
 
 def calculate_file_hash(file_path):
@@ -167,7 +246,7 @@ def extract_main_headers_from_msg(msg_obj):
         return {}
 
 def format_header_analysis_section(analysis_results, output_mode):
-    """Format header analysis with complete header display and routing details."""
+    """Format header analysis with smart defanging - only IPs in headers."""
     try:
         lines = []
         
@@ -187,16 +266,16 @@ def format_header_analysis_section(analysis_results, output_mode):
                 if msg_obj:
                     headers = extract_main_headers_from_msg(msg_obj)
                     
-                    # Display main headers with defanging
+                    # Display main headers with SMART defanging (headers context)
                     for header_name in ['From', 'Return-Path', 'Reply-To', 'Message-ID', 'Subject', 'Date']:
                         value = headers.get(header_name, 'MISSING')
-                        display_value = safe_defang_for_report(value, output_mode)
+                        display_value = smart_defang_for_report(value, output_mode, "headers")
                         lines.append(f"{header_name}: {display_value}")
                     
-                    # Authentication Results
+                    # Authentication Results - smart defanging for headers
                     auth_results = headers.get('Authentication-Results', 'MISSING')
                     if auth_results != 'MISSING':
-                        display_auth = safe_defang_for_report(auth_results, output_mode)
+                        display_auth = smart_defang_for_report(auth_results, output_mode, "headers")
                         lines.append(f"Authentication-Results: {display_auth}")
                     else:
                         lines.append("Authentication-Results: MISSING")
@@ -207,11 +286,10 @@ def format_header_analysis_section(analysis_results, output_mode):
             pass
         
         if not headers_displayed:
-            # This should not happen now, but keep as fallback
             lines.append("Email headers: [Unable to extract - check original file]")
             lines.append("")
         
-        # Routing hops
+        # Routing hops - smart defanging for headers context
         routing_hops = analysis_results.get('routing_hops', [])
         if routing_hops and len(routing_hops) > 0:
             lines.append(f"Total hops identified: {len(routing_hops)}")
@@ -222,8 +300,8 @@ def format_header_analysis_section(analysis_results, output_mode):
                 
                 # Clean ANSI color codes from hop content
                 clean_content = re.sub(r'\033\[[0-9;]*m', '', str(hop_content))
-                # Apply defanging to the entire hop content
-                display_content = safe_defang_for_report(clean_content, output_mode)
+                # Apply SMART defanging - only IPs for headers
+                display_content = smart_defang_for_report(clean_content, output_mode, "headers")
                 
                 lines.append(f"[{hop_index}] {display_content}")
         else:
@@ -258,8 +336,8 @@ def format_ip_analysis_section(analysis_results, output_mode):
                     ip, country, verdict = ip_data[:3]
                     comment = ip_data[3] if len(ip_data) > 3 else ""
                     
-                    # Apply defanging consistently
-                    display_ip = safe_defang_for_report(ip, output_mode)
+                    # Apply defanging consistently (only IPs, not infrastructure)
+                    display_ip = smart_defang_for_report(ip, output_mode, "headers")
                     
                     if verdict.lower() == 'malicious':
                         malicious_ips.append(f"- {display_ip} ({country}) - {comment}")
@@ -276,10 +354,8 @@ def format_ip_analysis_section(analysis_results, output_mode):
             # Display by threat level - NO blank lines between different categories
             all_entries = []
             if malicious_ips:
-                all_entries.append("MALICIOUS IP ADDRESSES:")
                 all_entries.extend(malicious_ips)
             if suspicious_ips:
-                all_entries.append("SUSPICIOUS IP ADDRESSES:")
                 all_entries.extend(suspicious_ips)
             if unchecked_ips:
                 all_entries.extend(unchecked_ips)
@@ -296,7 +372,7 @@ def format_ip_analysis_section(analysis_results, output_mode):
         return [f"Error formatting IP analysis: {e}", ""]
 
 def format_url_analysis_section(analysis_results, output_mode):
-    """Format URL analysis with main FQDNs only, customer-ready output."""
+    """Format URL analysis with smart defanging - ALL URLs defanged."""
     try:
         lines = []
         
@@ -311,7 +387,7 @@ def format_url_analysis_section(analysis_results, output_mode):
         if not url_results:
             lines.append("No URLs detected in email body or headers.")
         else:
-            # Process URL results - show only main domains
+            # Process URL results - defang ALL URLs in defanged mode
             all_entries = []
             for result in url_results:
                 if result and isinstance(result, dict):
@@ -319,7 +395,8 @@ def format_url_analysis_section(analysis_results, output_mode):
                     verdict = result.get('verdict', 'unknown')
                     comment = result.get('comment', '')
                     
-                    display_domain = safe_defang_for_report(domain, output_mode)
+                    # Defang ALL URLs, regardless of verdict
+                    display_domain = smart_defang_for_report(domain, output_mode, "urls")
                     
                     if verdict == 'malicious':
                         all_entries.append(f"- {display_domain} - {comment}")
@@ -477,7 +554,6 @@ def format_attachment_analysis_section(analysis_results, output_mode):
             # Content analysis details (simplified)
             content_analysis = att.get('attachment_content_analysis')
             if content_analysis and content_analysis.get('analyzed'):
-                text_length = content_analysis.get('text_length', 0)
                 findings = content_analysis.get('findings', {})
                 url_analysis = content_analysis.get('url_analysis', {})
                 
@@ -500,7 +576,7 @@ def format_attachment_analysis_section(analysis_results, output_mode):
                         for result in url_analysis['results']:
                             if result.get('verdict') == 'malicious':
                                 domain = result.get('domain', 'unknown')
-                                display_domain = safe_defang_for_report(domain, output_mode)
+                                display_domain = smart_defang_for_report(domain, output_mode, "urls")
                                 lines.append(f"  - {display_domain}")
                 
                 lines.append("")
@@ -520,7 +596,7 @@ def format_attachment_analysis_section(analysis_results, output_mode):
                         page = qr.get('page', 1)
                         
                         # Apply defanging to QR code URLs
-                        display_url = safe_defang_for_report(url, output_mode)
+                        display_url = smart_defang_for_report(url, output_mode, "urls")
                         
                         if page > 1:
                             lines.append(f"QR Code {j} (Page {page}):")
@@ -560,9 +636,6 @@ def format_attachment_analysis_section(analysis_results, output_mode):
                 elif threat_level == 'high':
                     lines.append("- HIGH RISK: File type mismatch indicates deception")
                 lines.append("")
-            
-            # Risk assessment (simplified)
-            final_risk_level = att.get('final_risk_level', 'unknown')
         
         return lines
     

@@ -11,10 +11,11 @@ Phishalyzer is a Python-based static analysis tool that helps security professio
 ### Multi-Layered Analysis
 - **Header Analysis**: Authentication verification (SPF, DKIM, DMARC) and routing examination
 - **IP Address Analysis**: Geolocation mapping and reputation checking via VirusTotal
-- **URL Analysis**: Domain reputation assessment and malicious link detection
+- **URL Analysis**: Domain reputation assessment and malicious link detection from email body and HTML links
 - **Email Body Analysis**: Phishing content detection and social engineering pattern recognition
 - **Attachment Analysis**: File type validation, extension spoofing detection, and content analysis
-- **QR Code Analysis**: Extraction and analysis of QR codes from PDF attachments
+- **QR Code Analysis**: Extraction and analysis of QR codes from PDF and image attachments
+- **Attachment Content Analysis**: Text extraction and phishing pattern detection from documents
 
 ### Advanced Threat Detection
 - File extension spoofing detection (executables disguised as documents)
@@ -23,13 +24,15 @@ Phishalyzer is a Python-based static analysis tool that helps security professio
 - Payment redirect scam detection
 - Executive impersonation analysis
 - Malicious QR code identification
+- URL extraction from HTML links and form actions
+- Comprehensive attachment content scanning
 
 ### Risk Assessment
 - Four-tier risk classification system (CRITICAL, HIGH, MEDIUM, LOW)
 - Comprehensive threat categorization
-- Actionable intelligence reporting
+- Executive summary generation with actionable intelligence
 - Indicators of Compromise (IOC) tracking
-- Executive summary generation
+- Professional report generation for customer delivery
 
 ### User Interface
 - Interactive command-line menu system
@@ -37,6 +40,7 @@ Phishalyzer is a Python-based static analysis tool that helps security professio
 - Defanged output for safe URL and IP display
 - Detailed analysis breakdowns
 - Universal terminal compatibility
+- Comprehensive report generation
 
 ## Installation
 
@@ -53,22 +57,14 @@ pip install -r requirements.txt
 
 ### Required Dependencies
 ```
-extract-msg        # Microsoft Outlook MSG file parsing
-dnspython         # DNS lookups and validation
-requests          # HTTP requests for API integration
-email-validator   # Email address validation
-```
-
-### Optional Dependencies
-```bash
-# Enhanced document analysis
-pip install PyMuPDF python-docx openpyxl python-pptx
-
-# QR code detection and image processing
-pip install opencv-python Pillow
-
-# OCR capabilities for image text extraction
-pip install pytesseract
+extract-msg>=0.41.0    # Microsoft Outlook MSG file parsing
+dnspython>=2.3.0       # DNS lookups and validation
+requests>=2.28.0       # HTTP requests for API integration
+email-validator>=2.0.0 # Email address validation
+PyMuPDF>=1.23.0        # PDF analysis and QR code extraction
+Pillow>=10.0.0         # Image processing
+opencv-python>=4.8.0   # QR code detection
+pytesseract>=0.3.10    # OCR capabilities for image text extraction
 ```
 
 ## Quick Start
@@ -96,69 +92,32 @@ python phishalyzer.py
 
 ### Output Modes
 - **Fanged Mode**: Display URLs and IPs in normal format
-- **Defanged Mode**: Display URLs and IPs in safe format (https[:]//example[.]com)
+- **Defanged Mode**: Display URLs and IPs in safe format (https[:]//malicious[.]com)
 
-## Analysis Workflow
+## Features
 
-### Header Analysis
-Examines email headers for authentication failures, routing anomalies, and sender validation issues. Identifies missing or failed SPF, DKIM, and DMARC records that may indicate spoofing attempts.
+### Analysis Capabilities
+- Comprehensive header authentication analysis
+- Complete email routing hop examination
+- IP address reputation verification
+- URL extraction from email body and HTML content
+- Attachment file type verification and content analysis
+- QR code detection and URL analysis
+- Phishing content pattern recognition
+- Extension spoofing detection
 
-### Content Analysis
-Scans email body content for phishing keywords, social engineering techniques, and suspicious patterns. Analyzes both plain text and HTML content for malicious indicators.
+### Reporting
+- Executive summary generation
+- Comprehensive plaintext reports
+- Risk assessment with supporting evidence
+- IOC extraction and categorization
 
-### URL Analysis
-Extracts URLs from headers, body content, and attachments. Groups URLs by domain and checks reputation against VirusTotal database. Identifies redirects and suspicious link patterns.
-
-### Attachment Analysis
-Performs deep analysis of email attachments including file type validation, magic number verification, and content extraction. Detects file extension spoofing and analyzes embedded content for threats.
-
-### Risk Assessment
-Aggregates findings from all analysis modules to generate comprehensive risk scores and threat categorizations. Provides executive-level summaries for decision making.
-
-## Understanding Results
-
-### Risk Categories
-- **CRITICAL**: Immediate threats requiring urgent action
-- **HIGH**: Significant security concerns requiring investigation
-- **MEDIUM**: Moderate risks requiring attention
-- **LOW**: Minor concerns for awareness
-
-### Threat Types
-- **Malicious Indicators**: VirusTotal-confirmed threats
-- **Suspicious Indicators**: Potentially harmful content
-- **Warning Factors**: Items requiring manual review
-- **Critical Threats**: Immediate security risks
-
-## Use Cases
-
-### Security Operations
-- Incident response and threat hunting
-- Email security monitoring
-- Phishing campaign analysis
-- Threat intelligence gathering
-
-### IT Administration
-- Email security assessment
-- User awareness training support
-- Policy compliance verification
-- Security control validation
-
-### Research and Education
-- Malware analysis training
-- Phishing technique research
-- Security awareness demonstrations
-- Academic cybersecurity studies
-
-## Safety and Security
-
-### Static Analysis Only
-Phishalyzer performs static analysis without executing attachments or following links, maintaining a safe analysis environment.
-
-### Defanged Output
-URLs and IP addresses can be displayed in defanged format to prevent accidental clicks during analysis review.
-
-### Isolated Environment
-Recommended for use in virtual machines or sandboxed environments when analyzing highly suspicious content.
+### Security Features
+- Static analysis only (no code execution)
+- Safe defanged output option
+- Rate limiting for API calls
+- Error handling and recovery
+- No browser storage dependencies
 
 ## Limitations
 
@@ -173,18 +132,20 @@ Recommended for use in virtual machines or sandboxed environments when analyzing
 phishalyzer/
 ├── phishalyzer.py              # Main application
 ├── analyzer/                   # Core analysis modules
+│   ├── parser.py              # Email file parsing
+│   ├── header_analyzer.py     # Header authentication analysis
+│   ├── ioc_extractor.py       # IP address analysis
+│   ├── url_extractor.py       # URL extraction and analysis
+│   ├── body_analyzer.py       # Email content analysis
+│   ├── attachment_analyzer.py # File analysis and threat detection
+│   ├── attachment_content_analyzer.py # Document content analysis
+│   ├── qr_analyzer.py         # QR code detection and analysis
+│   ├── defanger.py           # Safe output formatting
+│   ├── compatible_output.py   # Universal terminal support
+│   └── report_generator.py    # Professional report generation
 ├── requirements.txt            # Python dependencies
-├── samples/                    # Sample email files
-└── README.md                   # Documentation
+└── README.md                  # Documentation
 ```
-
-## Contributing
-
-Contributions are welcome through pull requests. Please ensure code follows the existing style and includes appropriate testing.
-
-## License
-
-This project is licensed under the MIT License. See the LICENSE file for details.
 
 ## Disclaimer
 

@@ -50,7 +50,7 @@ Phishalyzer is a Python-based static analysis tool that helps security professio
 
 ### Basic Installation
 ```bash
-git clone https://github.com/your-repo/phishalyzer.git
+git clone https://github.com/alexludlum/phishalyzer.git
 cd phishalyzer
 pip install -r requirements.txt
 ```

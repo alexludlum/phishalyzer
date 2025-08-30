@@ -7,7 +7,7 @@ import sys
 def _detect_actual_file_type(file_path):
     """
     Detect actual file type by examining file content, not just extension.
-    This handles cases where .msg files are renamed to .eml
+    FIXED: Handle BOM and better EML detection
     """
     try:
         with open(file_path, 'rb') as f:
@@ -20,39 +20,46 @@ def _detect_actual_file_type(file_path):
         
         # EML files are text-based, check for email headers
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                first_lines = [f.readline().strip().lower() for _ in range(10)]
+            # FIXED: Handle BOM properly
+            content = header.decode('utf-8-sig', errors='ignore')  # utf-8-sig handles BOM
             
-            email_headers = ['from:', 'to:', 'subject:', 'date:', 'message-id:', 'received:']
-            header_count = sum(1 for line in first_lines if any(
-                line.startswith(header) for header in email_headers
-            ))
+            # Remove quotes and normalize
+            content = content.replace('"', '').strip()
             
-            if header_count >= 2:
+            # Look for email headers in the content
+            email_patterns = [
+                r'received:\s*from',
+                r'from:\s*[\w\.-]+@[\w\.-]+',
+                r'to:\s*[\w\.-]+@[\w\.-]+', 
+                r'subject:\s*',
+                r'date:\s*\w+,',
+                r'message-id:\s*<',
+                r'return-path:\s*<'
+            ]
+            
+            import re
+            header_matches = 0
+            content_lower = content.lower()
+            
+            for pattern in email_patterns:
+                if re.search(pattern, content_lower):
+                    header_matches += 1
+            
+            if header_matches >= 1:  # Lowered threshold
                 return 'eml'
-        except:
+                
+        except Exception as e:
+            print(f"Error in EML detection: {e}")
             pass
         
         return 'unknown'
-    except:
+    except Exception as e:
+        print(f"Error detecting file type: {e}")
         return 'unknown'
 
 def load_email(file_path):
     """
-    Load .eml or .msg email file and return a parsed email.message.EmailMessage object.
-    Includes comprehensive error handling for various file issues.
-
-    Args:
-        file_path (str): Path to the email file.
-
-    Returns:
-        email.message.EmailMessage: Parsed email message.
-        str: File type detected ('eml' or 'msg').
-    
-    Raises:
-        FileNotFoundError: If file doesn't exist
-        ValueError: If file type is unsupported
-        Exception: For other parsing errors
+    FIXED: Load .eml or .msg email file with better error handling
     """
     
     # Validate file path
@@ -92,18 +99,28 @@ def load_email(file_path):
         print("Attempting MSG parsing based on extension...")
         return _load_msg_file(file_path)
     else:
-        # Try to detect format by content if extension is missing/wrong
-        try:
-            return _detect_and_load_email(file_path)
-        except Exception:
-            raise ValueError(f"Unsupported file type: {ext}. Supported types: .eml, .msg. "
-                            f"Content detection result: {actual_type}")
+        raise ValueError(f"Unsupported file type: {ext}. Supported types: .eml, .msg. "
+                        f"Content detection result: {actual_type}")
 
 def _load_eml_file(file_path):
-    """Load .eml file with error handling."""
+    """FIXED: Load .eml file with BOM handling."""
     try:
+        # FIXED: Handle BOM and encoding issues
         with open(file_path, "rb") as f:
-            msg = email.message_from_binary_file(f, policy=policy.default)
+            raw_content = f.read()
+        
+        # Remove BOM if present
+        if raw_content.startswith(b'\xef\xbb\xbf'):
+            raw_content = raw_content[3:]
+            print("Removed UTF-8 BOM from file")
+        
+        # Remove leading quotes if present (your file has this issue)
+        if raw_content.startswith(b'"'):
+            raw_content = raw_content[1:]
+            print("Removed leading quote character")
+        
+        # Parse the cleaned content
+        msg = email.message_from_bytes(raw_content, policy=policy.default)
         
         # Validate that we got a valid email object
         if not hasattr(msg, 'get'):
@@ -120,14 +137,6 @@ def _load_eml_file(file_path):
     except IOError as e:
         raise IOError(f"File I/O error: {e}")
     except Exception as e:
-        # Check if this might be a renamed MSG file
-        try:
-            actual_type = _detect_actual_file_type(file_path)
-            if actual_type == "msg":
-                raise ValueError(f"This appears to be a MSG file renamed as EML. "
-                               f"Try changing the extension to .msg or use MSG parser. Original error: {e}")
-        except:
-            pass
         raise Exception(f"Unexpected error parsing EML file: {e}")
 
 def _load_msg_file(file_path):
@@ -198,16 +207,6 @@ def _detect_and_load_email(file_path):
     raise ValueError("Could not determine email file format or file is corrupted")
 
 def _msg_to_eml_string(msg):
-    """
-    ENHANCED: Converts extract_msg.Message to proper RFC822 string WITH NESTED ATTACHMENT SUPPORT.
-    This version handles embedded MSG files and extracts nested attachments.
-
-    Args:
-        msg (extract_msg.Message): Loaded .msg email.
-
-    Returns:
-        str: String in RFC822 format with proper multipart structure.
-    """
     import base64
     import mimetypes
     
@@ -451,5 +450,3 @@ def extract_all_attachments_recursive(msg):
         print(f"Error in recursive attachment extraction: {e}")
     
     return all_attachments
-
-#Complete analyzer/!
